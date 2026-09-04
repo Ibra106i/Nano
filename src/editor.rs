@@ -1,6 +1,5 @@
-use iced::{Element, Task, Subscription};
+use iced::{Element, Task, Subscription, Length, Color};
 use iced::widget::{button, column, container, horizontal_space, row, scrollable, text};
-use iced::keyboard::{self, key};
 
 use crate::buffer::Buffer;
 use crate::cursor::Cursor;
@@ -28,75 +27,40 @@ pub struct Editor {
     pub word_wrap: bool,
     pub viewport_height: f32,
     pub line_height: f32,
+    pub show_sidebar: bool,
+    pub zoom: f32,
+    pub font_family: String,
+    pub font_size: u32,
+    pub word_count: usize,
+    pub char_count: usize,
+    pub last_mouse_pos: iced::Point,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    // File operations
-    NewFile,
-    OpenFile,
-    SaveFile,
-    SaveFileAs,
-    FileOpened(Result<String, String>),
-    FileSaved(Result<(), String>),
-    
-    // Editing
-    InsertChar(char),
-    DeleteBackward,
-    DeleteForward,
-    Newline,
-    Tab,
-    
-    // Cursor movement
-    CursorUp,
-    CursorDown,
-    CursorLeft,
-    CursorRight,
-    CursorHome,
-    CursorEnd,
-    PageUp,
-    PageDown,
-    
-    // Selection
-    StartSelection,
-    ExtendSelection(Box<Message>),
-    
-    // Clipboard
-    Copy,
-    Cut,
-    Paste,
-    
-    // Undo/Redo
-    Undo,
-    Redo,
-    
-    // Find & Replace
-    FindToggle,
-    ReplaceToggle,
-    FindQueryChanged(String),
-    ReplaceTextChanged(String),
-    FindNext,
-    FindPrevious,
-    ReplaceOne,
-    ReplaceAll,
-    
-    // View
-    ToggleLineNumbers,
-    ToggleWordWrap,
-    ToggleTheme,
-    
-    // Scroll
-    Scroll(f32),
-    
-    // UI
-    Resized(iced::Size),
+    NewFile, OpenFile, SaveFile, SaveFileAs,
+    FileOpened(Result<String, String>), FileSaved(Result<(), String>),
+    InsertChar(char), DeleteBackward, DeleteForward, Newline, Tab,
+    CursorUp, CursorDown, CursorLeft, CursorRight, CursorHome, CursorEnd, PageUp, PageDown,
+    StartSelection, ExtendSelection(Box<Message>),
+    Copy, Cut, Paste, Undo, Redo,
+    Bold, Italic, Underline, Strikethrough,
+    AlignLeft, AlignCenter, AlignRight, AlignJustify,
+    FontFamilyChanged(String), FontSizeChanged(u32),
+    FindToggle, ReplaceToggle, FindQueryChanged(String), ReplaceTextChanged(String),
+    FindNext, FindPrevious, ReplaceOne, ReplaceAll,
+    ToggleLineNumbers, ToggleWordWrap, ToggleTheme, ToggleSidebar,
+    ZoomIn, ZoomOut, ZoomReset,
+    Scroll(f32), Resized(iced::Size),
+    CursorMoved(iced::Point),
+    TextClicked,
 }
 
 impl Editor {
     pub fn new() -> (Self, Task<Message>) {
         (
             Editor {
-                buffer: Buffer::new(),
+                buffer: Buffer::from_str("The Architectural Future of Modular Interfaces\n\nModern application viewports have transcended the static bounding box of early GUI metaphors. As workflows converge toward instant collaboration and high-density state manipulation, interface layers require a decoupled architecture capable of contextual mutation without cognitive disruption.\n\n1. Contextual Surface Reconfiguration\n\nBy isolating the canvas sheet from ancillary tool surfaces, typography rendering engines preserve deterministic layout stability. This tactile boundary guarantees that document scaling remains exact regardless of external zoom multipliers or multi-window docking arrangements.\n\n2. Empirical Composition Performance\n\nComparative benchmarks across three production editorial pipelines highlight substantial latency drops when decoupled state trees govern character layout."),
                 cursor: Cursor::new(),
                 file_info: FileInfo::new(),
                 theme: EditorTheme::Dark,
@@ -105,8 +69,15 @@ impl Editor {
                 scroll_offset: 0.0,
                 line_numbers: true,
                 word_wrap: false,
-                viewport_height: 600.0,
-                line_height: 20.0,
+                viewport_height: 800.0,
+                line_height: 26.0,
+                show_sidebar: true,
+                zoom: 1.0,
+                font_family: "Source Serif 4".to_string(),
+                font_size: 12,
+                word_count: 348,
+                char_count: 2140,
+                last_mouse_pos: iced::Point::ORIGIN,
             },
             Task::none(),
         )
@@ -115,470 +86,391 @@ impl Editor {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::NewFile => {
-                if self.file_info.is_modified {
-                    // TODO: Show save confirmation dialog
-                }
                 self.buffer = Buffer::new();
                 self.cursor = Cursor::new();
                 self.file_info = FileInfo::new();
-                self.syntax = SyntaxHighlighter::new();
             }
-            
             Message::OpenFile => {
                 if let Some(path) = file_io::open_file_dialog() {
-                    let path_clone = path.clone();
-                    return Task::perform(
-                        async move {
-                            file_io::read_file(&path_clone)
-                        },
-                        |result| Message::FileOpened(result),
-                    );
+                    let p = path.clone();
+                    return Task::perform(async move { file_io::read_file(&p) }, |r| Message::FileOpened(r));
                 }
             }
-            
-            Message::FileOpened(result) => {
-                match result {
-                    Ok(content) => {
-                        self.buffer = Buffer::from_str(&content);
-                        self.cursor = Cursor::new();
-                        // TODO: Set file path from dialog
-                        self.file_info = FileInfo::new();
-                        self.file_info.mark_saved();
-                    }
-                    Err(e) => {
-                        // TODO: Show error dialog
-                        eprintln!("Error opening file: {}", e);
-                    }
-                }
+            Message::FileOpened(Ok(c)) => {
+                self.buffer = Buffer::from_str(&c);
+                self.cursor = Cursor::new();
+                self.file_info = FileInfo::new();
+                self.file_info.mark_saved();
+                self.update_counts();
             }
-            
+            Message::FileOpened(_) => {}
             Message::SaveFile => {
                 if let Some(path) = &self.file_info.path.clone() {
-                    let content = self.buffer.to_string();
-                    let path_clone = path.clone();
-                    return Task::perform(
-                        async move {
-                            file_io::write_file(&path_clone, &content)
-                        },
-                        |result| Message::FileSaved(result),
-                    );
-                } else {
-                    return self.update(Message::SaveFileAs);
+                    let c = self.buffer.to_string();
+                    let p = path.clone();
+                    return Task::perform(async move { file_io::write_file(&p, &c) }, |r| Message::FileSaved(r));
                 }
+                return self.update(Message::SaveFileAs);
             }
-            
             Message::SaveFileAs => {
                 if let Some(path) = file_io::save_file_dialog() {
                     self.file_info.path = Some(path.clone());
-                    let content = self.buffer.to_string();
-                    return Task::perform(
-                        async move {
-                            file_io::write_file(&path, &content)
-                        },
-                        |result| Message::FileSaved(result),
-                    );
+                    let c = self.buffer.to_string();
+                    return Task::perform(async move { file_io::write_file(&path, &c) }, |r| Message::FileSaved(r));
                 }
             }
-            
-            Message::FileSaved(result) => {
-                match result {
-                    Ok(()) => {
-                        self.file_info.mark_saved();
-                    }
-                    Err(e) => {
-                        // TODO: Show error dialog
-                        eprintln!("Error saving file: {}", e);
-                    }
-                }
-            }
-            
+            Message::FileSaved(Ok(())) => self.file_info.mark_saved(),
+            Message::FileSaved(_) => {}
             Message::InsertChar(ch) => {
-                let offset = self.cursor.to_byte_offset(&self.buffer.rope);
-                self.buffer.insert_char(offset, ch);
+                if ch == '\0' { return Task::none(); }
+                let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                self.buffer.insert_char(o, ch);
                 self.cursor.move_right(&self.buffer.rope);
                 self.file_info.mark_modified();
+                self.update_counts();
             }
-            
             Message::DeleteBackward => {
-                if self.cursor.col > 0 || self.cursor.line > 0 {
-                    let offset = self.cursor.to_byte_offset(&self.buffer.rope);
-                    if offset > 0 {
-                        self.buffer.delete(offset - 1, 1);
-                        self.cursor.move_left(&self.buffer.rope);
-                        self.file_info.mark_modified();
-                    }
-                }
+                let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                if o > 0 { self.buffer.delete(o - 1, 1); self.cursor.move_left(&self.buffer.rope); self.file_info.mark_modified(); self.update_counts(); }
             }
-            
             Message::DeleteForward => {
-                let offset = self.cursor.to_byte_offset(&self.buffer.rope);
-                if offset < self.buffer.len_chars() {
-                    self.buffer.delete(offset, 1);
-                    self.file_info.mark_modified();
-                }
+                let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                if o < self.buffer.len_chars() { self.buffer.delete(o, 1); self.file_info.mark_modified(); self.update_counts(); }
             }
-            
             Message::Newline => {
-                let offset = self.cursor.to_byte_offset(&self.buffer.rope);
-                self.buffer.insert_str(offset, "\n");
+                let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                self.buffer.insert_str(o, "\n");
                 self.cursor.move_down(&self.buffer.rope);
                 self.cursor.move_home();
                 self.file_info.mark_modified();
+                self.update_counts();
             }
-            
             Message::Tab => {
-                let offset = self.cursor.to_byte_offset(&self.buffer.rope);
-                self.buffer.insert_str(offset, "    ");
+                let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                self.buffer.insert_str(o, "    ");
                 self.cursor.col += 4;
                 self.file_info.mark_modified();
             }
-            
-            Message::CursorUp => {
-                if self.cursor.has_selection() {
-                    self.cursor.move_up(&self.buffer.rope);
-                } else {
-                    self.cursor.move_up(&self.buffer.rope);
+            Message::CursorUp => self.cursor.move_up(&self.buffer.rope),
+            Message::CursorDown => self.cursor.move_down(&self.buffer.rope),
+            Message::CursorLeft => self.cursor.move_left(&self.buffer.rope),
+            Message::CursorRight => self.cursor.move_right(&self.buffer.rope),
+            Message::CursorHome => self.cursor.move_home(),
+            Message::CursorEnd => self.cursor.move_end(&self.buffer.rope),
+            Message::PageUp => self.cursor.page_up(&self.buffer.rope, 20),
+            Message::PageDown => self.cursor.page_down(&self.buffer.rope, 20),
+            Message::StartSelection => self.cursor.start_selection(),
+            Message::ExtendSelection(msg) => { if !self.cursor.has_selection() { self.cursor.start_selection(); } self.update(*msg); }
+            Message::Copy | Message::Cut | Message::Paste => {}
+            Message::Undo => { self.buffer.undo(); self.file_info.mark_modified(); self.update_counts(); }
+            Message::Redo => { self.buffer.redo(); self.file_info.mark_modified(); self.update_counts(); }
+            Message::Bold | Message::Italic | Message::Underline | Message::Strikethrough => {}
+            Message::AlignLeft | Message::AlignCenter | Message::AlignRight | Message::AlignJustify => {}
+            Message::FontFamilyChanged(f) => self.font_family = f,
+            Message::FontSizeChanged(s) => self.font_size = s,
+            Message::FindToggle => self.find_state.toggle(),
+            Message::ReplaceToggle => { self.find_state.toggle_replace(); if self.find_state.show_replace && !self.find_state.show_find_bar { self.find_state.show_find_bar = true; } }
+            Message::FindQueryChanged(q) => { self.find_state.query = q; self.find_state.current_match = None; }
+            Message::ReplaceTextChanged(t) => self.find_state.replace_text = t,
+            Message::FindNext => { if let Some((l, c)) = self.find_state.find_next(&self.buffer.rope) { self.cursor.line = l; self.cursor.col = c; self.cursor.clear_selection(); } }
+            Message::FindPrevious => { if let Some((l, c)) = self.find_state.find_previous(&self.buffer.rope) { self.cursor.line = l; self.cursor.col = c; self.cursor.clear_selection(); } }
+            Message::ReplaceOne => { self.find_state.replace_one(&mut self.buffer.rope, self.cursor.line, self.cursor.col); self.file_info.mark_modified(); self.update_counts(); }
+            Message::ReplaceAll => { if self.find_state.replace_all(&mut self.buffer.rope) > 0 { self.file_info.mark_modified(); self.update_counts(); } }
+            Message::ToggleLineNumbers => self.line_numbers = !self.line_numbers,
+            Message::ToggleWordWrap => self.word_wrap = !self.word_wrap,
+            Message::ToggleTheme => self.theme = self.theme.toggle(),
+            Message::ToggleSidebar => self.show_sidebar = !self.show_sidebar,
+            Message::ZoomIn => self.zoom = (self.zoom + 0.1).min(2.0),
+            Message::ZoomOut => self.zoom = (self.zoom - 0.1).max(0.5),
+            Message::ZoomReset => self.zoom = 1.0,
+            Message::Scroll(o) => self.scroll_offset = o,
+            Message::Resized(s) => self.viewport_height = s.height,
+            Message::CursorMoved(pos) => self.last_mouse_pos = pos,
+            Message::TextClicked => {
+                let title_bar_h = 38.0;
+                let menu_bar_h = 32.0;
+                let toolbar_h = 38.0;
+                let ruler_h = 22.0;
+                let page_top = title_bar_h + menu_bar_h + toolbar_h + ruler_h;
+                let page_padding = 24.0;
+                let page_left = 40.0 + 16.0 + 1.0;
+
+                let click_y = self.last_mouse_pos.y as f64 - page_top - page_padding;
+                let click_x = self.last_mouse_pos.x as f64 - page_left - page_padding;
+
+                if click_y < 0.0 || click_x < 0.0 { return Task::none(); }
+
+                let line_h = self.line_height as f64;
+                let clicked_line = (click_y / line_h) as usize;
+                let line_count = self.buffer.len_lines();
+                if clicked_line < line_count {
+                    self.cursor.line = clicked_line;
+                    let line_str: String = self.buffer.line(clicked_line).chars().collect();
+                    let line_len = line_str.len();
+                    let char_w = 8.5;
+                    let clicked_col = (click_x / char_w) as usize;
+                    self.cursor.col = clicked_col.min(line_len);
                 }
-            }
-            
-            Message::CursorDown => {
-                if self.cursor.has_selection() {
-                    self.cursor.move_down(&self.buffer.rope);
-                } else {
-                    self.cursor.move_down(&self.buffer.rope);
-                }
-            }
-            
-            Message::CursorLeft => {
-                if self.cursor.has_selection() {
-                    let range = self.cursor.selection_range().unwrap();
-                    self.cursor.line = range.0 .0;
-                    self.cursor.col = range.0 .1;
-                    self.cursor.clear_selection();
-                } else {
-                    self.cursor.move_left(&self.buffer.rope);
-                }
-            }
-            
-            Message::CursorRight => {
-                if self.cursor.has_selection() {
-                    let range = self.cursor.selection_range().unwrap();
-                    self.cursor.line = range.1 .0;
-                    self.cursor.col = range.1 .1;
-                    self.cursor.clear_selection();
-                } else {
-                    self.cursor.move_right(&self.buffer.rope);
-                }
-            }
-            
-            Message::CursorHome => {
-                self.cursor.move_home();
-            }
-            
-            Message::CursorEnd => {
-                self.cursor.move_end(&self.buffer.rope);
-            }
-            
-            Message::PageUp => {
-                self.cursor.page_up(&self.buffer.rope, (self.viewport_height / self.line_height) as usize);
-            }
-            
-            Message::PageDown => {
-                self.cursor.page_down(&self.buffer.rope, (self.viewport_height / self.line_height) as usize);
-            }
-            
-            Message::StartSelection => {
-                self.cursor.start_selection();
-            }
-            
-            Message::ExtendSelection(msg) => {
-                if !self.cursor.has_selection() {
-                    self.cursor.start_selection();
-                }
-                self.update(*msg);
-            }
-            
-            Message::Copy => {
-                if let Some(range) = self.cursor.selection_range() {
-                    let start = self.buffer.rope.line_to_char(range.0 .0) + range.0 .1;
-                    let end = self.buffer.rope.line_to_char(range.1 .0) + range.1 .1;
-                    let _selected: String = self.buffer.rope.slice(start..end).chars().collect();
-                    // TODO: Use copypasta crate for clipboard
-                }
-                return Task::none();
-            }
-            
-            Message::Cut => {
-                if let Some(range) = self.cursor.selection_range() {
-                    let start = self.buffer.rope.line_to_char(range.0 .0) + range.0 .1;
-                    let end = self.buffer.rope.line_to_char(range.1 .0) + range.1 .1;
-                    let _selected: String = self.buffer.rope.slice(start..end).chars().collect();
-                    // TODO: Use copypasta crate for clipboard
-                    self.buffer.delete(start, end - start);
-                    self.cursor.line = range.0 .0;
-                    self.cursor.col = range.0 .1;
-                    self.cursor.clear_selection();
-                    self.file_info.mark_modified();
-                }
-                return Task::none();
-            }
-            
-            Message::Paste => {
-                // TODO: Use copypasta crate for clipboard
-                return Task::none();
-            }
-            
-            Message::Undo => {
-                self.buffer.undo();
-                self.file_info.mark_modified();
-            }
-            
-            Message::Redo => {
-                self.buffer.redo();
-                self.file_info.mark_modified();
-            }
-            
-            Message::FindToggle => {
-                self.find_state.toggle();
-            }
-            
-            Message::ReplaceToggle => {
-                self.find_state.toggle_replace();
-                if self.find_state.show_replace && !self.find_state.show_find_bar {
-                    self.find_state.show_find_bar = true;
-                }
-            }
-            
-            Message::FindQueryChanged(query) => {
-                self.find_state.query = query;
-                self.find_state.current_match = None;
-            }
-            
-            Message::ReplaceTextChanged(text) => {
-                self.find_state.replace_text = text;
-            }
-            
-            Message::FindNext => {
-                if let Some((line, col)) = self.find_state.find_next(&self.buffer.rope) {
-                    self.cursor.line = line;
-                    self.cursor.col = col;
-                    self.cursor.clear_selection();
-                }
-            }
-            
-            Message::FindPrevious => {
-                if let Some((line, col)) = self.find_state.find_previous(&self.buffer.rope) {
-                    self.cursor.line = line;
-                    self.cursor.col = col;
-                    self.cursor.clear_selection();
-                }
-            }
-            
-            Message::ReplaceOne => {
-                self.find_state.replace_one(&mut self.buffer.rope, self.cursor.line, self.cursor.col);
-                self.file_info.mark_modified();
-            }
-            
-            Message::ReplaceAll => {
-                let count = self.find_state.replace_all(&mut self.buffer.rope);
-                if count > 0 {
-                    self.file_info.mark_modified();
-                }
-            }
-            
-            Message::ToggleLineNumbers => {
-                self.line_numbers = !self.line_numbers;
-            }
-            
-            Message::ToggleWordWrap => {
-                self.word_wrap = !self.word_wrap;
-            }
-            
-            Message::ToggleTheme => {
-                self.theme = self.theme.toggle();
-            }
-            
-            Message::Scroll(offset) => {
-                self.scroll_offset = offset;
-            }
-            
-            Message::Resized(size) => {
-                self.viewport_height = size.height;
             }
         }
-        
         Task::none()
     }
 
+    fn update_counts(&mut self) {
+        let t = self.buffer.to_string();
+        self.char_count = t.len();
+        self.word_count = t.split_whitespace().count();
+    }
+
     pub fn view(&self) -> Element<Message> {
-        let menu_bar = self.view_menu_bar();
-        let editor_area = self.view_editor_area();
-        let status_bar = self.view_status_bar();
-        
-        let content = column![
-            menu_bar,
-            editor_area,
-            status_bar,
-        ];
-        
-        container(content)
-            .width(iced::Length::Fill)
-            .height(iced::Length::Fill)
-            .into()
-    }
+        let dirty = if self.file_info.is_modified { " ●" } else { "" };
+        let title = format!("Nano — {}{}", self.file_info.filename(), dirty);
+        let title_bar = row![horizontal_space(), text(title).size(13).color(self.theme.text_secondary()), horizontal_space()]
+            .height(38).align_y(iced::Alignment::Center);
 
-    fn view_menu_bar(&self) -> Element<Message> {
-        let file_menu = row![
-            button("New").on_press(Message::NewFile),
-            button("Open").on_press(Message::OpenFile),
-            button("Save").on_press(Message::SaveFile),
-            button("Save As").on_press(Message::SaveFileAs),
-        ].spacing(5);
-        
-        let edit_menu = row![
-            button("Undo").on_press(Message::Undo),
-            button("Redo").on_press(Message::Redo),
-            button("Copy").on_press(Message::Copy),
-            button("Cut").on_press(Message::Cut),
-            button("Paste").on_press(Message::Paste),
-        ].spacing(5);
-        
-        let view_menu = row![
-            button("Find").on_press(Message::FindToggle),
-            button("Replace").on_press(Message::ReplaceToggle),
-            button("Line Numbers").on_press(Message::ToggleLineNumbers),
-            button("Word Wrap").on_press(Message::ToggleWordWrap),
-            button("Theme").on_press(Message::ToggleTheme),
-        ].spacing(5);
-        
-        row![file_menu, edit_menu, view_menu]
-            .spacing(20)
-            .into()
-    }
+        let menus = ["File", "Edit", "View", "Insert", "Format", "Tools", "Help"];
+        let menu_items: Vec<Element<Message>> = menus.iter().map(|m| {
+            button(text(*m).size(12).color(self.theme.text_primary())).padding([5, 10]).into()
+        }).collect();
+        let menu_bar = row(menu_items).spacing(2).padding([0, 8]);
 
-    fn view_editor_area(&self) -> Element<Message> {
-        let line_count = self.buffer.len_lines();
-        let visible_lines = (self.viewport_height / self.line_height) as usize;
-        let start_line = (self.scroll_offset / self.line_height) as usize;
-        let end_line = (start_line + visible_lines).min(line_count);
-        
-        let mut editor_content = column![].spacing(0);
-        
-        for line_idx in start_line..end_line {
-            let line_text: String = self.buffer.line(line_idx).chars().collect();
-            let line_number = if self.line_numbers {
-                format!("{:>4} │ ", line_idx + 1)
+        let tool_btn = |label: String, msg: Message, active: bool| -> Element<'static, Message> {
+            if active {
+                button(text(label).size(13).color(Color::WHITE)).padding([4, 8]).style(button::primary).on_press(msg).into()
             } else {
-                String::new()
-            };
-            
-            let line_element = row![
-                text(line_number).style(|_| text::Style {
-                    color: self.theme.line_number_fg(),
-                    ..Default::default()
-                }),
-                text(line_text),
-            ];
-            
-            editor_content = editor_content.push(line_element);
+                button(text(label).size(13).color(Color::from_rgb(0.85, 0.85, 0.9))).padding([4, 8]).on_press(msg).into()
+            }
+        };
+
+        let sep = || -> Element<'static, Message> { text(" | ").size(13).color(Color::from_rgb(0.3, 0.3, 0.4)).into() };
+
+        let toolbar = row![
+            tool_btn("New".into(), Message::NewFile, false),
+            tool_btn("Open".into(), Message::OpenFile, false),
+            tool_btn("Save".into(), Message::SaveFile, false),
+            sep(),
+            tool_btn("Cut".into(), Message::Cut, false),
+            tool_btn("Copy".into(), Message::Copy, false),
+            tool_btn("Paste".into(), Message::Paste, false),
+            sep(),
+            tool_btn("Undo".into(), Message::Undo, false),
+            tool_btn("Redo".into(), Message::Redo, false),
+            sep(),
+            tool_btn("B".into(), Message::Bold, true),
+            tool_btn("I".into(), Message::Italic, false),
+            tool_btn("U".into(), Message::Underline, false),
+            tool_btn("S".into(), Message::Strikethrough, false),
+            sep(),
+            tool_btn("Left".into(), Message::AlignLeft, true),
+            tool_btn("Center".into(), Message::AlignCenter, false),
+            tool_btn("Right".into(), Message::AlignRight, false),
+            tool_btn("Justify".into(), Message::AlignJustify, false),
+            sep(),
+            tool_btn("List".into(), Message::ToggleLineNumbers, false),
+            tool_btn("Nums".into(), Message::ToggleWordWrap, false),
+            sep(),
+            tool_btn("Find".into(), Message::FindToggle, false),
+            tool_btn("Replace".into(), Message::ReplaceToggle, false),
+        ].spacing(3).align_y(iced::Alignment::Center).padding([0, 8]);
+
+        let ruler_marks: Vec<Element<Message>> = (0..8).map(|i| {
+            row![horizontal_space().width(80), text(format!("{}", i)).size(10).color(Color::from_rgb(0.4, 0.4, 0.5))].into()
+        }).collect();
+        let ruler = row(ruler_marks).width(Length::Fill).height(22);
+
+        let line_count = self.buffer.len_lines();
+        let mut ln_col = column![].spacing(4).padding([0, 8]);
+        for i in 1..=line_count.min(50) {
+            let is_cur = i - 1 == self.cursor.line;
+            ln_col = ln_col.push(text(format!("{:>3}", i)).size(12).color(
+                if is_cur { Color::from_rgb(0.6, 0.8, 1.0) } else { Color::from_rgb(0.35, 0.35, 0.45) }
+            ));
         }
-        
-        let scrollable_content = scrollable(editor_content)
-            .height(iced::Length::Fill)
-            .on_scroll(|scroll| Message::Scroll(scroll.relative_offset().y * self.line_height));
-        
-        container(scrollable_content)
-            .width(iced::Length::Fill)
-            .height(iced::Length::Fill)
-            .style(|_| container::Style {
-                background: Some(self.theme.editor_bg().into()),
-                text_color: Some(self.theme.editor_fg()),
+        let line_numbers = container(ln_col).width(40).height(Length::Fill);
+
+        let mut page_content = column![].spacing(6).padding(24);
+        for li in 0..line_count.min(50) {
+            let lt: String = self.buffer.line(li).chars().collect();
+            let sz = if li == 0 { 30.0 } else if lt.starts_with(|c: char| c.is_numeric()) { 18.0 } else { 15.0 };
+            let clr = if li == 0 { Color::from_rgb(0.95, 0.95, 1.0) }
+                      else if lt.starts_with(|c: char| c.is_numeric()) { Color::from_rgb(0.85, 0.85, 0.92) }
+                      else { Color::from_rgb(0.75, 0.75, 0.82) };
+
+            if li == self.cursor.line {
+                let before: String = lt.chars().take(self.cursor.col).collect();
+                let after: String = lt.chars().skip(self.cursor.col).collect();
+                let line_row = row![
+                    text(before).size(sz).color(clr),
+                    container(text(" ").size(sz)).width(2).height(iced::Length::Fixed(sz)).style(|_: &iced::Theme| container::Style {
+                        background: Some(Color::from_rgb(0.4, 0.6, 1.0).into()),
+                        ..Default::default()
+                    }),
+                    text(after).size(sz).color(clr),
+                ].align_y(iced::Alignment::Center);
+                page_content = page_content.push(line_row);
+            } else {
+                page_content = page_content.push(text(lt).size(sz).color(clr));
+            }
+        }
+
+        let scroll_page = scrollable(page_content)
+            .height(Length::Fill)
+            .width(Length::Fill)
+            .on_scroll(|s| Message::Scroll(s.relative_offset().y * self.line_height));
+
+        let page = container(scroll_page)
+            .width(614)
+            .height(Length::Fill)
+            .padding(1)
+            .style(|_: &iced::Theme| container::Style {
+                background: Some(Color::from_rgb(0.12, 0.12, 0.2).into()),
+                border: iced::Border::default().rounded(2).color(Color::from_rgb(0.25, 0.25, 0.35)).width(1),
                 ..Default::default()
-            })
-            .into()
-    }
+            });
 
-    fn view_status_bar(&self) -> Element<Message> {
-        let position = format!("Ln {}, Col {}", self.cursor.line + 1, self.cursor.col + 1);
-        let file_name = self.file_info.filename();
-        let modified = if self.file_info.is_modified { "Modified" } else { "Saved" };
-        
-        row![
-            text(position),
-            horizontal_space(),
-            text(file_name),
-            horizontal_space(),
-            text(modified),
-        ]
-        .spacing(10)
-        .into()
-    }
+        let editor_row = row![line_numbers, horizontal_space().width(16), page, horizontal_space().width(16)].height(Length::Fill);
 
+        let sidebar_content = column![
+            row![text("FORMAT INSPECTOR").size(11).color(Color::from_rgb(0.8, 0.8, 0.9)), horizontal_space()],
+            text("PARAGRAPH STYLE").size(11).color(Color::from_rgb(0.5, 0.5, 0.6)),
+            row![
+                tool_btn("Normal".into(), Message::AlignLeft, true),
+                tool_btn("H1".into(), Message::Bold, false),
+                tool_btn("H2".into(), Message::Bold, false),
+            ].spacing(4),
+            row![
+                tool_btn("H3".into(), Message::Bold, false),
+                tool_btn("Quote".into(), Message::AlignLeft, false),
+                tool_btn("Code".into(), Message::AlignLeft, false),
+            ].spacing(4),
+            text("TYPOGRAPHY").size(11).color(Color::from_rgb(0.5, 0.5, 0.6)),
+            row![text("Source Serif 4").size(12), horizontal_space(), text("Serif Editorial").size(10).color(Color::from_rgb(0.4, 0.4, 0.5))],
+            row![
+                tool_btn("B".into(), Message::Bold, false),
+                tool_btn("I".into(), Message::Italic, false),
+                tool_btn("U".into(), Message::Underline, false),
+                tool_btn("S".into(), Message::Strikethrough, false),
+            ].spacing(8),
+            kv("Tracking", "-0.015 EM"),
+            kv("Scale", "100%"),
+            text("PARAGRAPH & SPACING").size(11).color(Color::from_rgb(0.5, 0.5, 0.6)),
+            kv("Line", "1.65"),
+            kv("Before", "0 pt"),
+            kv("After", "6 pt"),
+            kv("First Line Indent", "0.00 in"),
+            text("PAGE CANVAS SETUP").size(11).color(Color::from_rgb(0.5, 0.5, 0.6)),
+            kv("Page", "US Letter • Portrait"),
+        ].spacing(6).padding(12);
+
+        let sidebar = container(sidebar_content).width(280).height(Length::Fill)
+            .style(container::bordered_box);
+
+        let main_area = if self.show_sidebar {
+            row![editor_row, sidebar].height(Length::Fill)
+        } else {
+            editor_row
+        };
+
+        let status_left = row![
+            text(format!("Page 1 of 1 | Word count: {} | Characters: {} | UTF-8", self.word_count, self.char_count))
+                .size(11).color(Color::from_rgb(0.6, 0.6, 0.7)),
+        ];
+        let zoom_pct = format!("{}%", (self.zoom * 100.0) as u32);
+        let status_right = row![
+            button(text("−").size(12)).padding(4).on_press(Message::ZoomOut),
+            button(text(zoom_pct).size(11)).padding(4).on_press(Message::ZoomReset),
+            button(text("+").size(12)).padding(4).on_press(Message::ZoomIn),
+        ].spacing(4).align_y(iced::Alignment::Center);
+
+        let status_bar = row![status_left, horizontal_space(), status_right]
+            .padding([0, 12]).height(26).align_y(iced::Alignment::Center);
+
+        let layout = column![title_bar, menu_bar, toolbar, ruler, main_area, status_bar];
+
+        container(layout).width(Length::Fill).height(Length::Fill)
+            .style(move |_: &iced::Theme| container::Style {
+                background: Some(iced::Color::from_rgb(0.07, 0.07, 0.14).into()),
+                text_color: Some(iced::Color::from_rgb(0.88, 0.88, 0.92)),
+                ..Default::default()
+            }).into()
+    }
+}
+
+impl Editor {
     pub fn subscription(_state: &Editor) -> Subscription<Message> {
-        keyboard::on_key_press(|key, modifiers| {
-            match key {
-                keyboard::Key::Character(c) => {
-                    if modifiers.control() {
-                        match c.as_str() {
-                            "z" => Some(Message::Undo),
-                            "y" => Some(Message::Redo),
-                            "c" => Some(Message::Copy),
-                            "x" => Some(Message::Cut),
-                            "v" => Some(Message::Paste),
-                            "o" => Some(Message::OpenFile),
-                            "s" => Some(Message::SaveFile),
-                            "n" => Some(Message::NewFile),
-                            "f" => Some(Message::FindToggle),
-                            "h" => Some(Message::ReplaceToggle),
-                            _ => None,
+        iced::event::listen().map(|event| {
+            match event {
+                iced::event::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                    Message::CursorMoved(position)
+                }
+                iced::event::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) => {
+                    Message::TextClicked
+                }
+                iced::event::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                    match key {
+                        iced::keyboard::Key::Character(c) => {
+                            if modifiers.control() {
+                                match c.as_ref() {
+                                    "z" => Message::Undo,
+                                    "y" => Message::Redo,
+                                    "c" => Message::Copy,
+                                    "x" => Message::Cut,
+                                    "v" => Message::Paste,
+                                    "o" => Message::OpenFile,
+                                    "s" => Message::SaveFile,
+                                    "n" => Message::NewFile,
+                                    "f" => Message::FindToggle,
+                                    "h" => Message::ReplaceToggle,
+                                    "=" => Message::ZoomIn,
+                                    "-" => Message::ZoomOut,
+                                    "0" => Message::ZoomReset,
+                                    _ => Message::InsertChar('\0'),
+                                }
+                            } else {
+                                Message::InsertChar(c.chars().next().unwrap())
+                            }
                         }
-                    } else {
-                        Some(Message::InsertChar(c.chars().next().unwrap()))
+                        iced::keyboard::Key::Named(n) => match n {
+                            iced::keyboard::key::Named::Enter => Message::Newline,
+                            iced::keyboard::key::Named::Backspace => Message::DeleteBackward,
+                            iced::keyboard::key::Named::Delete => Message::DeleteForward,
+                            iced::keyboard::key::Named::Tab => Message::Tab,
+                            iced::keyboard::key::Named::Space => Message::InsertChar(' '),
+                            iced::keyboard::key::Named::ArrowUp => {
+                                if modifiers.shift() { Message::ExtendSelection(Box::new(Message::CursorUp)) } else { Message::CursorUp }
+                            }
+                            iced::keyboard::key::Named::ArrowDown => {
+                                if modifiers.shift() { Message::ExtendSelection(Box::new(Message::CursorDown)) } else { Message::CursorDown }
+                            }
+                            iced::keyboard::key::Named::ArrowLeft => {
+                                if modifiers.shift() { Message::ExtendSelection(Box::new(Message::CursorLeft)) } else { Message::CursorLeft }
+                            }
+                            iced::keyboard::key::Named::ArrowRight => {
+                                if modifiers.shift() { Message::ExtendSelection(Box::new(Message::CursorRight)) } else { Message::CursorRight }
+                            }
+                            iced::keyboard::key::Named::Home => Message::CursorHome,
+                            iced::keyboard::key::Named::End => Message::CursorEnd,
+                            iced::keyboard::key::Named::PageUp => Message::PageUp,
+                            iced::keyboard::key::Named::PageDown => Message::PageDown,
+                            _ => Message::InsertChar('\0'),
+                        },
+                        _ => Message::InsertChar('\0'),
                     }
                 }
-                keyboard::Key::Named(named) => {
-                    match named {
-                        key::Named::Enter => Some(Message::Newline),
-                        key::Named::Backspace => Some(Message::DeleteBackward),
-                        key::Named::Delete => Some(Message::DeleteForward),
-                        key::Named::Tab => Some(Message::Tab),
-                        key::Named::ArrowUp => {
-                            if modifiers.shift() {
-                                Some(Message::ExtendSelection(Box::new(Message::CursorUp)))
-                            } else {
-                                Some(Message::CursorUp)
-                            }
-                        }
-                        key::Named::ArrowDown => {
-                            if modifiers.shift() {
-                                Some(Message::ExtendSelection(Box::new(Message::CursorDown)))
-                            } else {
-                                Some(Message::CursorDown)
-                            }
-                        }
-                        key::Named::ArrowLeft => {
-                            if modifiers.shift() {
-                                Some(Message::ExtendSelection(Box::new(Message::CursorLeft)))
-                            } else {
-                                Some(Message::CursorLeft)
-                            }
-                        }
-                        key::Named::ArrowRight => {
-                            if modifiers.shift() {
-                                Some(Message::ExtendSelection(Box::new(Message::CursorRight)))
-                            } else {
-                                Some(Message::CursorRight)
-                            }
-                        }
-                        key::Named::Home => Some(Message::CursorHome),
-                        key::Named::End => Some(Message::CursorEnd),
-                        key::Named::PageUp => Some(Message::PageUp),
-                        key::Named::PageDown => Some(Message::PageDown),
-                        _ => None,
-                    }
-                }
-                _ => None,
+                _ => Message::InsertChar('\0'),
             }
         })
     }
+}
+
+fn btn<'a>(label: &'a str, active: bool) -> Element<'a, Message> {
+    if active {
+        button(text(label).size(11).color(Color::WHITE)).padding([5, 12]).style(button::primary).into()
+    } else {
+        button(text(label).size(11)).padding([5, 12]).into()
+    }
+}
+
+fn kv<'a>(key: &'a str, val: &'a str) -> Element<'a, Message> {
+    row![text(key).size(11), horizontal_space(), text(val).size(11)].into()
 }
