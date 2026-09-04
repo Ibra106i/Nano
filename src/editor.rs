@@ -1,6 +1,5 @@
-use iced::{Element, Task, Subscription, Event};
+use iced::{Element, Task, Subscription};
 use iced::widget::{button, column, container, horizontal_space, row, scrollable, text};
-use iced::event::{self, Status};
 use iced::keyboard::{self, key};
 
 use crate::buffer::Buffer;
@@ -516,73 +515,65 @@ impl Editor {
     }
 
     pub fn subscription(_state: &Editor) -> Subscription<Message> {
-        event::listen_with(|event, status, _| {
-            if status != Status::Ignored {
-                return None;
-            }
-            match event {
-                Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-                    match key {
-                        keyboard::Key::Character(c) => {
-                            if modifiers.control() {
-                                match c.as_str() {
-                                    "z" => Some(Message::Undo),
-                                    "y" => Some(Message::Redo),
-                                    "c" => Some(Message::Copy),
-                                    "x" => Some(Message::Cut),
-                                    "v" => Some(Message::Paste),
-                                    "o" => Some(Message::OpenFile),
-                                    "s" => Some(Message::SaveFile),
-                                    "n" => Some(Message::NewFile),
-                                    "f" => Some(Message::FindToggle),
-                                    "h" => Some(Message::ReplaceToggle),
-                                    _ => None,
-                                }
+        keyboard::on_key_press(|key, modifiers| {
+            match key {
+                keyboard::Key::Character(c) => {
+                    if modifiers.control() {
+                        match c.as_str() {
+                            "z" => Some(Message::Undo),
+                            "y" => Some(Message::Redo),
+                            "c" => Some(Message::Copy),
+                            "x" => Some(Message::Cut),
+                            "v" => Some(Message::Paste),
+                            "o" => Some(Message::OpenFile),
+                            "s" => Some(Message::SaveFile),
+                            "n" => Some(Message::NewFile),
+                            "f" => Some(Message::FindToggle),
+                            "h" => Some(Message::ReplaceToggle),
+                            _ => None,
+                        }
+                    } else {
+                        Some(Message::InsertChar(c.chars().next().unwrap()))
+                    }
+                }
+                keyboard::Key::Named(named) => {
+                    match named {
+                        key::Named::Enter => Some(Message::Newline),
+                        key::Named::Backspace => Some(Message::DeleteBackward),
+                        key::Named::Delete => Some(Message::DeleteForward),
+                        key::Named::Tab => Some(Message::Tab),
+                        key::Named::ArrowUp => {
+                            if modifiers.shift() {
+                                Some(Message::ExtendSelection(Box::new(Message::CursorUp)))
                             } else {
-                                Some(Message::InsertChar(c.chars().next().unwrap()))
+                                Some(Message::CursorUp)
                             }
                         }
-                        keyboard::Key::Named(named) => {
-                            match named {
-                                key::Named::Enter => Some(Message::Newline),
-                                key::Named::Backspace => Some(Message::DeleteBackward),
-                                key::Named::Delete => Some(Message::DeleteForward),
-                                key::Named::Tab => Some(Message::Tab),
-                                key::Named::ArrowUp => {
-                                    if modifiers.shift() {
-                                        Some(Message::ExtendSelection(Box::new(Message::CursorUp)))
-                                    } else {
-                                        Some(Message::CursorUp)
-                                    }
-                                }
-                                key::Named::ArrowDown => {
-                                    if modifiers.shift() {
-                                        Some(Message::ExtendSelection(Box::new(Message::CursorDown)))
-                                    } else {
-                                        Some(Message::CursorDown)
-                                    }
-                                }
-                                key::Named::ArrowLeft => {
-                                    if modifiers.shift() {
-                                        Some(Message::ExtendSelection(Box::new(Message::CursorLeft)))
-                                    } else {
-                                        Some(Message::CursorLeft)
-                                    }
-                                }
-                                key::Named::ArrowRight => {
-                                    if modifiers.shift() {
-                                        Some(Message::ExtendSelection(Box::new(Message::CursorRight)))
-                                    } else {
-                                        Some(Message::CursorRight)
-                                    }
-                                }
-                                key::Named::Home => Some(Message::CursorHome),
-                                key::Named::End => Some(Message::CursorEnd),
-                                key::Named::PageUp => Some(Message::PageUp),
-                                key::Named::PageDown => Some(Message::PageDown),
-                                _ => None,
+                        key::Named::ArrowDown => {
+                            if modifiers.shift() {
+                                Some(Message::ExtendSelection(Box::new(Message::CursorDown)))
+                            } else {
+                                Some(Message::CursorDown)
                             }
                         }
+                        key::Named::ArrowLeft => {
+                            if modifiers.shift() {
+                                Some(Message::ExtendSelection(Box::new(Message::CursorLeft)))
+                            } else {
+                                Some(Message::CursorLeft)
+                            }
+                        }
+                        key::Named::ArrowRight => {
+                            if modifiers.shift() {
+                                Some(Message::ExtendSelection(Box::new(Message::CursorRight)))
+                            } else {
+                                Some(Message::CursorRight)
+                            }
+                        }
+                        key::Named::Home => Some(Message::CursorHome),
+                        key::Named::End => Some(Message::CursorEnd),
+                        key::Named::PageUp => Some(Message::PageUp),
+                        key::Named::PageDown => Some(Message::PageDown),
                         _ => None,
                     }
                 }
