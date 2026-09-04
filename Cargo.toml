@@ -1,0 +1,10 @@
+[package]
+name = "rust-editor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+iced = { version = "0.13", features = ["tokio"] }
+ropey = "1.6"
+rfd = "0.14"
+copypasta = "0.10"
