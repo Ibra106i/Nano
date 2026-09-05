@@ -190,6 +190,7 @@ impl Editor {
             Message::Resized(s) => self.viewport_height = s.height,
             Message::CursorMoved(pos) => self.last_mouse_pos = pos,
             Message::TextClicked => {
+                self.cursor.clear_selection();
                 let title_bar_h = 38.0;
                 let menu_bar_h = 32.0;
                 let toolbar_h = 38.0;
@@ -291,15 +292,89 @@ impl Editor {
         }
         let line_numbers = container(ln_col).width(40).height(Length::Fill);
 
+        let sel_color = self.theme.page_selection();
+        let has_sel = self.cursor.has_selection();
+        let sel_range = self.cursor.selection_range();
+
         let mut page_content = column![].spacing(6).padding(24);
         for li in 0..line_count.min(50) {
             let lt: String = self.buffer.line(li).chars().collect();
+            let lt_len = lt.len();
             let sz = if li == 0 { 30.0 } else if lt.starts_with(|c: char| c.is_numeric()) { 18.0 } else { 15.0 };
             let clr = if li == 0 { Color::from_rgb(0.95, 0.95, 1.0) }
                       else if lt.starts_with(|c: char| c.is_numeric()) { Color::from_rgb(0.85, 0.85, 0.92) }
                       else { Color::from_rgb(0.75, 0.75, 0.82) };
 
-            if li == self.cursor.line {
+            let is_cursor_line = li == self.cursor.line;
+
+            if has_sel {
+                let (s_line, s_col) = sel_range.unwrap().0;
+                let (e_line, e_col) = sel_range.unwrap().1;
+
+                let sel_start = if li == s_line { s_col } else { 0 };
+                let sel_end = if li == e_line { e_col } else { lt_len };
+
+                let has_sel_on_line = li >= s_line && li <= e_line && sel_start < sel_end;
+
+                if has_sel_on_line {
+                    let before: String = lt.chars().take(sel_start).collect();
+                    let selected: String = lt.chars().skip(sel_start).take(sel_end - sel_start).collect();
+                    let after: String = lt.chars().skip(sel_end).collect();
+
+                    let mut parts: Vec<Element<Message>> = Vec::new();
+                    if !before.is_empty() {
+                        parts.push(text(before).size(sz).color(clr).into());
+                    }
+                    if !selected.is_empty() {
+                        parts.push(
+                            container(text(selected).size(sz).color(Color::WHITE))
+                                .style(move |_: &iced::Theme| container::Style {
+                                    background: Some(sel_color.into()),
+                                    border: iced::Border::default().rounded(2),
+                                    ..Default::default()
+                                }).into()
+                        );
+                    }
+                    if !after.is_empty() {
+                        parts.push(text(after).size(sz).color(clr).into());
+                    }
+
+                    if is_cursor_line {
+                        let before_cur: String = lt.chars().take(self.cursor.col).collect();
+                        let after_cur: String = lt.chars().skip(self.cursor.col).collect();
+                        parts = Vec::new();
+                        if !before_cur.is_empty() {
+                            parts.push(text(before_cur).size(sz).color(clr).into());
+                        }
+                        parts.push(
+                            container(text(" ").size(sz)).width(2).height(iced::Length::Fixed(sz))
+                                .style(|_: &iced::Theme| container::Style {
+                                    background: Some(Color::from_rgb(0.4, 0.6, 1.0).into()),
+                                    ..Default::default()
+                                }).into()
+                        );
+                        if !after_cur.is_empty() {
+                            parts.push(text(after_cur).size(sz).color(clr).into());
+                        }
+                    }
+
+                    page_content = page_content.push(row(parts).align_y(iced::Alignment::Center));
+                } else if is_cursor_line {
+                    let before: String = lt.chars().take(self.cursor.col).collect();
+                    let after: String = lt.chars().skip(self.cursor.col).collect();
+                    let line_row = row![
+                        text(before).size(sz).color(clr),
+                        container(text(" ").size(sz)).width(2).height(iced::Length::Fixed(sz)).style(|_: &iced::Theme| container::Style {
+                            background: Some(Color::from_rgb(0.4, 0.6, 1.0).into()),
+                            ..Default::default()
+                        }),
+                        text(after).size(sz).color(clr),
+                    ].align_y(iced::Alignment::Center);
+                    page_content = page_content.push(line_row);
+                } else {
+                    page_content = page_content.push(text(lt).size(sz).color(clr));
+                }
+            } else if is_cursor_line {
                 let before: String = lt.chars().take(self.cursor.col).collect();
                 let after: String = lt.chars().skip(self.cursor.col).collect();
                 let line_row = row![
