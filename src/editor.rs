@@ -38,6 +38,10 @@ pub struct Editor {
     pub last_mouse_pos: iced::Point,
     pub text_measurer: TextMeasurer,
     clipboard: ClipboardContext,
+    pub bold_active: bool,
+    pub italic_active: bool,
+    pub underline_active: bool,
+    pub strikethrough_active: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +88,10 @@ impl Editor {
                 last_mouse_pos: iced::Point::ORIGIN,
                 text_measurer: TextMeasurer::new(),
                 clipboard: ClipboardContext::new().unwrap(),
+                bold_active: false,
+                italic_active: false,
+                underline_active: false,
+                strikethrough_active: false,
             },
             Task::none(),
         )
@@ -226,7 +234,10 @@ impl Editor {
             }
             Message::Undo => { self.buffer.undo(); self.file_info.mark_modified(); self.update_counts(); }
             Message::Redo => { self.buffer.redo(); self.file_info.mark_modified(); self.update_counts(); }
-            Message::Bold | Message::Italic | Message::Underline | Message::Strikethrough => {}
+            Message::Bold => self.bold_active = !self.bold_active,
+            Message::Italic => self.italic_active = !self.italic_active,
+            Message::Underline => self.underline_active = !self.underline_active,
+            Message::Strikethrough => self.strikethrough_active = !self.strikethrough_active,
             Message::AlignLeft | Message::AlignCenter | Message::AlignRight | Message::AlignJustify => {}
             Message::FontFamilyChanged(f) => self.font_family = f,
             Message::FontSizeChanged(s) => self.font_size = s,
@@ -309,42 +320,51 @@ impl Editor {
         let menu_bar = row(menu_items).spacing(2).padding([0, 8]);
 
         let tool_btn = |label: String, msg: Message, active: bool| -> Element<'static, Message> {
-            if active {
-                button(text(label).size(13).color(Color::WHITE)).padding([4, 8]).style(button::primary).on_press(msg).into()
-            } else {
-                button(text(label).size(13).color(Color::from_rgb(0.85, 0.85, 0.9))).padding([4, 8]).on_press(msg).into()
-            }
+            let style = move |theme: &iced::Theme, status: button::Status| -> button::Style {
+                if active {
+                    button::primary(theme, status)
+                } else {
+                    button::Style {
+                        background: Some(Color::from_rgba(0.17, 0.18, 0.30, 0.6).into()),
+                        text_color: Color::from_rgb(0.85, 0.85, 0.9),
+                        border: iced::Border::default().rounded(4).color(Color::from_rgba(0.25, 0.25, 0.35, 0.5)).width(1),
+                        ..button::primary(theme, status)
+                    }
+                }
+            };
+            button(text(label).size(14).color(if active { Color::WHITE } else { Color::from_rgb(0.85, 0.85, 0.9) }))
+                .padding([4, 8]).style(style).on_press(msg).into()
         };
 
         let sep = || -> Element<'static, Message> { text(" | ").size(13).color(Color::from_rgb(0.3, 0.3, 0.4)).into() };
 
         let toolbar = row![
-            tool_btn("New".into(), Message::NewFile, false),
-            tool_btn("Open".into(), Message::OpenFile, false),
-            tool_btn("Save".into(), Message::SaveFile, false),
+            tool_btn("\u{1F4C4}".into(), Message::NewFile, false),
+            tool_btn("\u{1F4C2}".into(), Message::OpenFile, false),
+            tool_btn("\u{1F4BE}".into(), Message::SaveFile, false),
             sep(),
-            tool_btn("Cut".into(), Message::Cut, false),
-            tool_btn("Copy".into(), Message::Copy, false),
-            tool_btn("Paste".into(), Message::Paste, false),
+            tool_btn("\u{2702}".into(), Message::Cut, false),
+            tool_btn("\u{1F4CB}".into(), Message::Copy, false),
+            tool_btn("\u{1F4CF}".into(), Message::Paste, false),
             sep(),
-            tool_btn("Undo".into(), Message::Undo, false),
-            tool_btn("Redo".into(), Message::Redo, false),
+            tool_btn("\u{21A9}".into(), Message::Undo, false),
+            tool_btn("\u{21AA}".into(), Message::Redo, false),
             sep(),
-            tool_btn("B".into(), Message::Bold, true),
-            tool_btn("I".into(), Message::Italic, false),
-            tool_btn("U".into(), Message::Underline, false),
-            tool_btn("S".into(), Message::Strikethrough, false),
+            tool_btn("B".into(), Message::Bold, self.bold_active),
+            tool_btn("I".into(), Message::Italic, self.italic_active),
+            tool_btn("U".into(), Message::Underline, self.underline_active),
+            tool_btn("S".into(), Message::Strikethrough, self.strikethrough_active),
             sep(),
-            tool_btn("Left".into(), Message::AlignLeft, true),
-            tool_btn("Center".into(), Message::AlignCenter, false),
-            tool_btn("Right".into(), Message::AlignRight, false),
-            tool_btn("Justify".into(), Message::AlignJustify, false),
+            tool_btn("\u{2261}".into(), Message::AlignLeft, true),
+            tool_btn("\u{2261}".into(), Message::AlignCenter, false),
+            tool_btn("\u{2261}".into(), Message::AlignRight, false),
+            tool_btn("\u{2261}".into(), Message::AlignJustify, false),
             sep(),
-            tool_btn("List".into(), Message::ToggleLineNumbers, false),
-            tool_btn("Nums".into(), Message::ToggleWordWrap, false),
+            tool_btn("\u{2022}".into(), Message::ToggleLineNumbers, false),
+            tool_btn("\u{2263}".into(), Message::ToggleWordWrap, false),
             sep(),
-            tool_btn("Find".into(), Message::FindToggle, false),
-            tool_btn("Replace".into(), Message::ReplaceToggle, false),
+            tool_btn("\u{1F50D}".into(), Message::FindToggle, false),
+            tool_btn("\u{1F504}".into(), Message::ReplaceToggle, false),
         ].spacing(3).align_y(iced::Alignment::Center).padding([0, 8]);
 
         let ruler_marks: Vec<Element<Message>> = (0..8).map(|i| {
