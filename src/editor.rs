@@ -543,37 +543,70 @@ impl Editor {
 
         let editor_row = row![line_numbers, horizontal_space().width(16), page, horizontal_space().width(16)].height(Length::Fill);
 
+        let section_label = |s: &str| -> Element<'static, Message> {
+            text(s.to_string()).size(11).color(Color::from_rgb(0.5, 0.5, 0.6)).into()
+        };
+
         let sidebar_content = column![
-            row![text("FORMAT INSPECTOR").size(11).color(Color::from_rgb(0.8, 0.8, 0.9)), horizontal_space()],
-            text("PARAGRAPH STYLE").size(11).color(Color::from_rgb(0.5, 0.5, 0.6)),
+            row![text("FORMAT INSPECTOR").size(12).color(Color::from_rgb(0.8, 0.8, 0.9)), horizontal_space(), text("\u{2699}").size(14).color(Color::from_rgb(0.5, 0.5, 0.6))]
+                .align_y(iced::Alignment::Center),
+            text(""),
+            section_label("PARAGRAPH STYLE"),
             row![
                 tool_btn("Normal".into(), Message::AlignLeft, true),
-                tool_btn("H1".into(), Message::Bold, false),
-                tool_btn("H2".into(), Message::Bold, false),
+                tool_btn("H1 Lead".into(), Message::Bold, false),
+                tool_btn("H2 Sub".into(), Message::Bold, false),
             ].spacing(4),
             row![
-                tool_btn("H3".into(), Message::Bold, false),
+                tool_btn("H3 Head".into(), Message::Bold, false),
                 tool_btn("Quote".into(), Message::AlignLeft, false),
                 tool_btn("Code".into(), Message::AlignLeft, false),
             ].spacing(4),
-            text("TYPOGRAPHY").size(11).color(Color::from_rgb(0.5, 0.5, 0.6)),
+            text(""),
+            section_label("TYPOGRAPHY"),
             row![text("Source Serif 4").size(12), horizontal_space(), text("Serif Editorial").size(10).color(Color::from_rgb(0.4, 0.4, 0.5))],
             row![
-                tool_btn("B".into(), Message::Bold, false),
-                tool_btn("I".into(), Message::Italic, false),
-                tool_btn("U".into(), Message::Underline, false),
-                tool_btn("S".into(), Message::Strikethrough, false),
+                button(text(format!("-")).size(12)).padding([2, 6]).on_press(Message::FontSizeChanged(self.font_size.saturating_sub(1))),
+                button(text(format!("{} pt", self.font_size)).size(11)).padding([2, 8]),
+                button(text("+").size(12)).padding([2, 6]).on_press(Message::FontSizeChanged(self.font_size + 1)),
+                horizontal_space().width(8),
+                text("\u{25CF}").size(10).color(Color::from_rgb(0.4, 0.4, 0.5)),
+                text("\u{25CB}").size(10).color(Color::from_rgb(0.4, 0.4, 0.5)),
+            ].spacing(4).align_y(iced::Alignment::Center),
+            row![
+                tool_btn("B".into(), Message::Bold, self.bold_active),
+                tool_btn("I".into(), Message::Italic, self.italic_active),
+                tool_btn("U".into(), Message::Underline, self.underline_active),
+                tool_btn("S".into(), Message::Strikethrough, self.strikethrough_active),
+                text("x\u{00B2}").size(12).color(Color::from_rgb(0.6, 0.6, 0.7)),
             ].spacing(8),
-            kv("Tracking", "-0.015 EM"),
-            kv("Scale", "100%"),
-            text("PARAGRAPH & SPACING").size(11).color(Color::from_rgb(0.5, 0.5, 0.6)),
-            kv("Line", "1.65"),
-            kv("Before", "0 pt"),
-            kv("After", "6 pt"),
-            kv("First Line Indent", "0.00 in"),
-            text("PAGE CANVAS SETUP").size(11).color(Color::from_rgb(0.5, 0.5, 0.6)),
-            kv("Page", "US Letter • Portrait"),
-        ].spacing(6).padding(12);
+            row![kv("Tracking", "-0.015 EM")].spacing(0),
+            row![kv("Scale", "100%")].spacing(0),
+            text(""),
+            section_label("PARAGRAPH & SPACING"),
+            row![
+                tool_btn("\u{2261}".into(), Message::AlignLeft, true),
+                tool_btn("\u{2261}".into(), Message::AlignCenter, false),
+                tool_btn("\u{2261}".into(), Message::AlignRight, false),
+                tool_btn("\u{2261}".into(), Message::AlignJustify, false),
+            ].spacing(4),
+            row![kv("Line", "1.65")].spacing(0),
+            row![kv("Before", "0 pt")].spacing(0),
+            row![kv("After", "6 pt")].spacing(0),
+            row![kv("First Line Indent", "0.00 in")].spacing(0),
+            row![kv("Left Gutter Indent", "1.00 in")].spacing(0),
+            row![kv("Right Gutter Indent", "1.00 in")].spacing(0),
+            text(""),
+            section_label("PAGE CANVAS SETUP"),
+            row![
+                text("\u{1F4C4}").size(16).color(Color::from_rgb(0.5, 0.5, 0.6)),
+                horizontal_space().width(8),
+                column![
+                    text("US Letter \u{2022} Portrait").size(11),
+                    text("8.5 \u{00D7} 11 inches (1.0\" margins)").size(10).color(Color::from_rgb(0.4, 0.4, 0.5)),
+                ].spacing(2),
+            ].spacing(4).align_y(iced::Alignment::Center),
+        ].spacing(4).padding(12);
 
         let sidebar = container(sidebar_content).width(280).height(Length::Fill)
             .style(container::bordered_box);
