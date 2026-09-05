@@ -1,5 +1,5 @@
 use iced::{Element, Task, Subscription, Length, Color};
-use iced::widget::{button, column, container, horizontal_space, row, scrollable, text};
+use iced::widget::{button, column, container, horizontal_space, row, scrollable, text, text_input};
 
 use crate::buffer::Buffer;
 use crate::cursor::Cursor;
@@ -44,6 +44,7 @@ pub struct Editor {
     pub strikethrough_active: bool,
     pub left_margin: f32,
     pub right_margin: f32,
+    pub mouse_dragging: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +65,7 @@ pub enum Message {
     Scroll(f32), Resized(iced::Size),
     CursorMoved(iced::Point),
     TextClicked,
+    MouseDragEnd,
 }
 
 impl Editor {
@@ -96,6 +98,7 @@ impl Editor {
                 strikethrough_active: false,
                 left_margin: 72.0,
                 right_margin: 542.0,
+                mouse_dragging: false,
             },
             Task::none(),
         )
@@ -262,9 +265,37 @@ impl Editor {
             Message::ZoomReset => self.zoom = 1.0,
             Message::Scroll(o) => self.scroll_offset = o,
             Message::Resized(s) => self.viewport_height = s.height,
-            Message::CursorMoved(pos) => self.last_mouse_pos = pos,
+            Message::CursorMoved(pos) => {
+                self.last_mouse_pos = pos;
+                if self.mouse_dragging {
+                    let title_bar_h = 38.0;
+                    let menu_bar_h = 32.0;
+                    let toolbar_h = 38.0;
+                    let ruler_h = 22.0;
+                    let page_top = title_bar_h + menu_bar_h + toolbar_h + ruler_h;
+                    let page_padding = 24.0;
+                    let page_left = 40.0 + 16.0 + 1.0;
+
+                    let click_y = pos.y as f64 - page_top as f64 - page_padding as f64;
+                    let click_x = pos.x as f64 - page_left as f64 - page_padding as f64;
+
+                    if click_y >= 0.0 && click_x >= 0.0 {
+                        let line_h = self.line_height as f64;
+                        let clicked_line = (click_y / line_h) as usize;
+                        let line_count = self.buffer.len_lines();
+                        if clicked_line < line_count {
+                            self.cursor.line = clicked_line;
+                            let line_str: String = self.buffer.line(clicked_line).chars().collect();
+                            let line_len = line_str.len();
+                            let font_size = if clicked_line == 0 { 30.0 } else if line_str.starts_with(|c: char| c.is_numeric()) { 18.0 } else { 15.0 };
+                            let clicked_col = self.text_measurer.col_from_x(&line_str, click_x as f32, font_size);
+                            self.cursor.col = clicked_col.min(line_len);
+                        }
+                    }
+                }
+            }
             Message::TextClicked => {
-                self.cursor.clear_selection();
+                self.mouse_dragging = true;
                 let title_bar_h = 38.0;
                 let menu_bar_h = 32.0;
                 let toolbar_h = 38.0;
@@ -282,13 +313,18 @@ impl Editor {
                 let clicked_line = (click_y / line_h) as usize;
                 let line_count = self.buffer.len_lines();
                 if clicked_line < line_count {
+                    self.cursor.clear_selection();
                     self.cursor.line = clicked_line;
                     let line_str: String = self.buffer.line(clicked_line).chars().collect();
                     let line_len = line_str.len();
                     let font_size = if clicked_line == 0 { 30.0 } else if line_str.starts_with(|c: char| c.is_numeric()) { 18.0 } else { 15.0 };
                     let clicked_col = self.text_measurer.col_from_x(&line_str, click_x as f32, font_size);
                     self.cursor.col = clicked_col.min(line_len);
+                    self.cursor.start_selection();
                 }
+            }
+            Message::MouseDragEnd => {
+                self.mouse_dragging = false;
             }
         }
         Task::none()
@@ -353,6 +389,33 @@ impl Editor {
             sep(),
             tool_btn("\u{21A9}".into(), Message::Undo, false),
             tool_btn("\u{21AA}".into(), Message::Redo, false),
+            sep(),
+            {
+                let font_label: Element<'static, Message> = container(row![
+                    text(self.font_family.clone()).size(12).color(Color::from_rgb(0.85, 0.85, 0.9)),
+                    text(" \u{25BE}").size(10).color(Color::from_rgb(0.5, 0.5, 0.6)),
+                ].align_y(iced::Alignment::Center))
+                    .padding([4, 8])
+                    .style(|_: &iced::Theme| container::Style {
+                        background: Some(Color::from_rgba(0.17, 0.18, 0.30, 0.6).into()),
+                        border: iced::Border::default().rounded(4).color(Color::from_rgba(0.25, 0.25, 0.35, 0.5)).width(1),
+                        ..Default::default()
+                    }).into();
+                font_label
+            },
+            {
+                let size_label: Element<'static, Message> = container(row![
+                    text(format!("{} pt", self.font_size)).size(12).color(Color::from_rgb(0.85, 0.85, 0.9)),
+                    text(" \u{25BE}").size(10).color(Color::from_rgb(0.5, 0.5, 0.6)),
+                ].align_y(iced::Alignment::Center))
+                    .padding([4, 8])
+                    .style(|_: &iced::Theme| container::Style {
+                        background: Some(Color::from_rgba(0.17, 0.18, 0.30, 0.6).into()),
+                        border: iced::Border::default().rounded(4).color(Color::from_rgba(0.25, 0.25, 0.35, 0.5)).width(1),
+                        ..Default::default()
+                    }).into();
+                size_label
+            },
             sep(),
             tool_btn("B".into(), Message::Bold, self.bold_active),
             tool_btn("I".into(), Message::Italic, self.italic_active),
@@ -631,7 +694,57 @@ impl Editor {
         let status_bar = row![status_left, horizontal_space(), status_right]
             .padding([0, 12]).height(26).align_y(iced::Alignment::Center);
 
-        let layout = column![title_bar, menu_bar, toolbar, ruler, main_area, status_bar];
+        let find_bar: Element<Message> = if self.find_state.show_find_bar {
+            let close_btn = button(text("\u{2715}").size(12).color(Color::from_rgb(0.6, 0.6, 0.7)))
+                .padding([4, 8]).on_press(Message::FindToggle);
+
+            let find_row = row![
+                text_input("Find...", &self.find_state.query)
+                    .on_input(Message::FindQueryChanged)
+                    .width(200)
+                    .padding([4, 8])
+                    .size(12),
+                button(text("\u{25B6}").size(10)).padding([4, 6]).on_press(Message::FindNext),
+                button(text("\u{25C0}").size(10)).padding([4, 6]).on_press(Message::FindPrevious),
+                text(format!("{}/{}", self.find_state.current_match.map(|m| m + 1).unwrap_or(0), self.find_state.total_matches))
+                    .size(11).color(Color::from_rgb(0.5, 0.5, 0.6)),
+                close_btn,
+            ].spacing(6).align_y(iced::Alignment::Center);
+
+            if self.find_state.show_replace {
+                let replace_row = row![
+                    text_input("Replace...", &self.find_state.replace_text)
+                        .on_input(Message::ReplaceTextChanged)
+                        .width(200)
+                        .padding([4, 8])
+                        .size(12),
+                    button(text("Replace").size(11)).padding([4, 8]).on_press(Message::ReplaceOne),
+                    button(text("All").size(11)).padding([4, 8]).on_press(Message::ReplaceAll),
+                ].spacing(6).align_y(iced::Alignment::Center);
+
+                container(column![find_row, replace_row].spacing(4))
+                    .width(Length::Fill)
+                    .padding([8, 12])
+                    .style(|_: &iced::Theme| container::Style {
+                        background: Some(Color::from_rgb(0.12, 0.125, 0.208).into()),
+                        border: iced::Border::default().rounded(0).color(Color::from_rgb(0.176, 0.18, 0.29)).width(1),
+                        ..Default::default()
+                    }).into()
+            } else {
+                container(find_row)
+                    .width(Length::Fill)
+                    .padding([8, 12])
+                    .style(|_: &iced::Theme| container::Style {
+                        background: Some(Color::from_rgb(0.12, 0.125, 0.208).into()),
+                        border: iced::Border::default().rounded(0).color(Color::from_rgb(0.176, 0.18, 0.29)).width(1),
+                        ..Default::default()
+                    }).into()
+            }
+        } else {
+            horizontal_space().height(0).into()
+        };
+
+        let layout = column![title_bar, menu_bar, toolbar, ruler, find_bar, main_area, status_bar];
 
         container(layout).width(Length::Fill).height(Length::Fill)
             .style(move |_: &iced::Theme| container::Style {
@@ -651,6 +764,9 @@ impl Editor {
                 }
                 iced::event::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) => {
                     Message::TextClicked
+                }
+                iced::event::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
+                    Message::MouseDragEnd
                 }
                 iced::event::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                     match key {
