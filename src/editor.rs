@@ -9,13 +9,14 @@ use crate::syntax::SyntaxHighlighter;
 use crate::theme::Theme as EditorTheme;
 use crate::measure::TextMeasurer;
 
+use copypasta::{ClipboardContext, ClipboardProvider};
+
 impl Default for Editor {
     fn default() -> Self {
         Editor::new().0
     }
 }
 
-#[derive(Debug, Clone)]
 pub struct Editor {
     pub buffer: Buffer,
     pub cursor: Cursor,
@@ -36,6 +37,7 @@ pub struct Editor {
     pub char_count: usize,
     pub last_mouse_pos: iced::Point,
     pub text_measurer: TextMeasurer,
+    clipboard: ClipboardContext,
 }
 
 #[derive(Debug, Clone)]
@@ -45,7 +47,7 @@ pub enum Message {
     InsertChar(char), DeleteBackward, DeleteForward, Newline, Tab,
     CursorUp, CursorDown, CursorLeft, CursorRight, CursorHome, CursorEnd, PageUp, PageDown,
     StartSelection, ExtendSelection(Box<Message>),
-    Copy, Cut, Paste, Undo, Redo,
+    SelectAll, Copy, Cut, Paste, Undo, Redo,
     Bold, Italic, Underline, Strikethrough,
     AlignLeft, AlignCenter, AlignRight, AlignJustify,
     FontFamilyChanged(String), FontSizeChanged(u32),
@@ -81,6 +83,7 @@ impl Editor {
                 char_count: 2140,
                 last_mouse_pos: iced::Point::ORIGIN,
                 text_measurer: TextMeasurer::new(),
+                clipboard: ClipboardContext::new().unwrap(),
             },
             Task::none(),
         )
@@ -126,6 +129,7 @@ impl Editor {
             Message::FileSaved(_) => {}
             Message::InsertChar(ch) => {
                 if ch == '\0' { return Task::none(); }
+                self.delete_selection();
                 let o = self.cursor.to_byte_offset(&self.buffer.rope);
                 self.buffer.insert_char(o, ch);
                 self.cursor.move_right(&self.buffer.rope);
@@ -133,14 +137,27 @@ impl Editor {
                 self.update_counts();
             }
             Message::DeleteBackward => {
-                let o = self.cursor.to_byte_offset(&self.buffer.rope);
-                if o > 0 { self.buffer.delete(o - 1, 1); self.cursor.move_left(&self.buffer.rope); self.file_info.mark_modified(); self.update_counts(); }
+                if self.cursor.has_selection() {
+                    self.delete_selection();
+                } else {
+                    let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                    if o > 0 { self.buffer.delete(o - 1, 1); self.cursor.move_left(&self.buffer.rope); }
+                }
+                self.file_info.mark_modified();
+                self.update_counts();
             }
             Message::DeleteForward => {
-                let o = self.cursor.to_byte_offset(&self.buffer.rope);
-                if o < self.buffer.len_chars() { self.buffer.delete(o, 1); self.file_info.mark_modified(); self.update_counts(); }
+                if self.cursor.has_selection() {
+                    self.delete_selection();
+                } else {
+                    let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                    if o < self.buffer.len_chars() { self.buffer.delete(o, 1); }
+                }
+                self.file_info.mark_modified();
+                self.update_counts();
             }
             Message::Newline => {
+                self.delete_selection();
                 let o = self.cursor.to_byte_offset(&self.buffer.rope);
                 self.buffer.insert_str(o, "\n");
                 self.cursor.move_down(&self.buffer.rope);
@@ -149,6 +166,7 @@ impl Editor {
                 self.update_counts();
             }
             Message::Tab => {
+                self.delete_selection();
                 let o = self.cursor.to_byte_offset(&self.buffer.rope);
                 self.buffer.insert_str(o, "    ");
                 self.cursor.col += 4;
@@ -164,7 +182,48 @@ impl Editor {
             Message::PageDown => self.cursor.page_down(&self.buffer.rope, 20),
             Message::StartSelection => self.cursor.start_selection(),
             Message::ExtendSelection(msg) => { if !self.cursor.has_selection() { self.cursor.start_selection(); } self.update(*msg); }
-            Message::Copy | Message::Cut | Message::Paste => {}
+            Message::SelectAll => {
+                let last_line = self.buffer.len_lines().saturating_sub(1);
+                let last_col = self.buffer.line(last_line).len_chars();
+                self.cursor.selection_start = Some((0, 0));
+                self.cursor.line = last_line;
+                self.cursor.col = last_col;
+            }
+            Message::Copy => {
+                if let Some((start, end)) = self.cursor.selection_range() {
+                    let text = self.buffer.rope.slice(
+                        self.buffer.rope.line_to_char(start.0) + start.1
+                            ..self.buffer.rope.line_to_char(end.0) + end.1
+                    ).to_string();
+                    let _ = self.clipboard.set_contents(text);
+                }
+            }
+            Message::Cut => {
+                if let Some((start, end)) = self.cursor.selection_range() {
+                    let start_offset = self.buffer.rope.line_to_char(start.0) + start.1;
+                    let end_offset = self.buffer.rope.line_to_char(end.0) + end.1;
+                    let text = self.buffer.rope.slice(start_offset..end_offset).to_string();
+                    let _ = self.clipboard.set_contents(text);
+                    self.buffer.delete(start_offset, end_offset - start_offset);
+                    self.cursor.line = start.0;
+                    self.cursor.col = start.1;
+                    self.cursor.clear_selection();
+                    self.file_info.mark_modified();
+                    self.update_counts();
+                }
+            }
+            Message::Paste => {
+                if let Ok(text) = self.clipboard.get_contents() {
+                    self.delete_selection();
+                    let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                    self.buffer.insert_str(o, &text);
+                    for _ in 0..text.chars().count() {
+                        self.cursor.move_right(&self.buffer.rope);
+                    }
+                    self.file_info.mark_modified();
+                    self.update_counts();
+                }
+            }
             Message::Undo => { self.buffer.undo(); self.file_info.mark_modified(); self.update_counts(); }
             Message::Redo => { self.buffer.redo(); self.file_info.mark_modified(); self.update_counts(); }
             Message::Bold | Message::Italic | Message::Underline | Message::Strikethrough => {}
@@ -224,6 +283,17 @@ impl Editor {
         let t = self.buffer.to_string();
         self.char_count = t.len();
         self.word_count = t.split_whitespace().count();
+    }
+
+    fn delete_selection(&mut self) {
+        if let Some((start, end)) = self.cursor.selection_range() {
+            let start_offset = self.buffer.rope.line_to_char(start.0) + start.1;
+            let end_offset = self.buffer.rope.line_to_char(end.0) + end.1;
+            self.buffer.delete(start_offset, end_offset - start_offset);
+            self.cursor.line = start.0;
+            self.cursor.col = start.1;
+            self.cursor.clear_selection();
+        }
     }
 
     pub fn view(&self) -> Element<Message> {
@@ -494,6 +564,7 @@ impl Editor {
                                     "c" => Message::Copy,
                                     "x" => Message::Cut,
                                     "v" => Message::Paste,
+                                    "a" => Message::SelectAll,
                                     "o" => Message::OpenFile,
                                     "s" => Message::SaveFile,
                                     "n" => Message::NewFile,
