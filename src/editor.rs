@@ -42,6 +42,8 @@ pub struct Editor {
     pub italic_active: bool,
     pub underline_active: bool,
     pub strikethrough_active: bool,
+    pub left_margin: f32,
+    pub right_margin: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -92,6 +94,8 @@ impl Editor {
                 italic_active: false,
                 underline_active: false,
                 strikethrough_active: false,
+                left_margin: 72.0,
+                right_margin: 542.0,
             },
             Task::none(),
         )
@@ -367,10 +371,51 @@ impl Editor {
             tool_btn("\u{1F504}".into(), Message::ReplaceToggle, false),
         ].spacing(3).align_y(iced::Alignment::Center).padding([0, 8]);
 
-        let ruler_marks: Vec<Element<Message>> = (0..8).map(|i| {
-            row![horizontal_space().width(80), text(format!("{}", i)).size(10).color(Color::from_rgb(0.4, 0.4, 0.5))].into()
-        }).collect();
-        let ruler = row(ruler_marks).width(Length::Fill).height(22);
+        let ruler_bg = Color::from_rgb(0.122, 0.125, 0.208);
+        let ruler_border = Color::from_rgb(0.176, 0.18, 0.29);
+        let tick_color = Color::from_rgb(0.42, 0.42, 0.541);
+
+        let mut ruler_row: Vec<Element<Message>> = Vec::new();
+        for inch in 0..8 {
+            let inch_x = inch as f32 * 80.0;
+            let mut seg_parts: Vec<Element<Message>> = Vec::new();
+
+            for sub in 0..8 {
+                let _sub_x = inch_x + sub as f32 * 10.0;
+                let is_half = sub == 4;
+                let tick_h = if sub == 0 { 10.0 } else if is_half { 7.0 } else { 4.0 };
+                let tick_w = 1.0;
+                seg_parts.push(
+                    container(horizontal_space().width(tick_w).height(tick_h))
+                        .width(tick_w).height(tick_h)
+                        .style(move |_: &iced::Theme| container::Style {
+                            background: Some(tick_color.into()),
+                            ..Default::default()
+                        }).into()
+                );
+            }
+
+            let inch_label = text(format!("{}", inch)).size(9).color(tick_color);
+            seg_parts.push(horizontal_space().width(8.0).into());
+            seg_parts.push(inch_label.into());
+
+            ruler_row.push(row(seg_parts).align_y(iced::Alignment::End).into());
+        }
+
+        let ruler_inner = row(ruler_row)
+            .width(Length::Fill)
+            .height(22)
+            .align_y(iced::Alignment::Center)
+            .padding([0, 4]);
+
+        let ruler = container(ruler_inner)
+            .width(Length::Fill)
+            .height(22)
+            .style(move |_: &iced::Theme| container::Style {
+                background: Some(ruler_bg.into()),
+                border: iced::Border::default().rounded(0).color(ruler_border).width(1),
+                ..Default::default()
+            });
 
         let line_count = self.buffer.len_lines();
         let mut ln_col = column![].spacing(4).padding([0, 8]);
