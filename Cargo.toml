@@ -8,3 +8,5 @@ iced = { version = "0.13", features = ["tokio"] }
 ropey = "1.6"
 rfd = "0.14"
 copypasta = "0.10"
+cosmic-text = "0.12"
+fontdb = "0.16"

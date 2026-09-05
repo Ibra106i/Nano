@@ -7,6 +7,7 @@ use crate::file_io::{self, FileInfo};
 use crate::find::FindState;
 use crate::syntax::SyntaxHighlighter;
 use crate::theme::Theme as EditorTheme;
+use crate::measure::TextMeasurer;
 
 impl Default for Editor {
     fn default() -> Self {
@@ -34,6 +35,7 @@ pub struct Editor {
     pub word_count: usize,
     pub char_count: usize,
     pub last_mouse_pos: iced::Point,
+    pub text_measurer: TextMeasurer,
 }
 
 #[derive(Debug, Clone)]
@@ -78,6 +80,7 @@ impl Editor {
                 word_count: 348,
                 char_count: 2140,
                 last_mouse_pos: iced::Point::ORIGIN,
+                text_measurer: TextMeasurer::new(),
             },
             Task::none(),
         )
@@ -195,8 +198,8 @@ impl Editor {
                 let page_padding = 24.0;
                 let page_left = 40.0 + 16.0 + 1.0;
 
-                let click_y = self.last_mouse_pos.y as f64 - page_top - page_padding;
-                let click_x = self.last_mouse_pos.x as f64 - page_left - page_padding;
+                let click_y = self.last_mouse_pos.y as f64 - page_top as f64 - page_padding as f64;
+                let click_x = self.last_mouse_pos.x as f64 - page_left as f64 - page_padding as f64;
 
                 if click_y < 0.0 || click_x < 0.0 { return Task::none(); }
 
@@ -207,8 +210,8 @@ impl Editor {
                     self.cursor.line = clicked_line;
                     let line_str: String = self.buffer.line(clicked_line).chars().collect();
                     let line_len = line_str.len();
-                    let char_w = 8.5;
-                    let clicked_col = (click_x / char_w) as usize;
+                    let font_size = if clicked_line == 0 { 30.0 } else if line_str.starts_with(|c: char| c.is_numeric()) { 18.0 } else { 15.0 };
+                    let clicked_col = self.text_measurer.col_from_x(&line_str, click_x as f32, font_size);
                     self.cursor.col = clicked_col.min(line_len);
                 }
             }

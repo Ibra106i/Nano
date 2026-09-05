@@ -6,6 +6,7 @@ mod file_io;
 mod syntax;
 mod find;
 mod theme;
+mod measure;
 
 use editor::Editor;
 
