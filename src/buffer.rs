@@ -3,7 +3,7 @@ use ropey::Rope;
 #[derive(Debug, Clone)]
 pub enum EditOperation {
     Insert { offset: usize, text: String },
-    Delete { offset: usize, length: usize },
+    Delete { offset: usize, text: String },
 }
 
 #[derive(Debug, Clone)]
@@ -55,7 +55,7 @@ impl Buffer {
         let deleted: String = self.rope.slice(offset..offset + length).chars().collect();
         let op = EditOperation::Delete {
             offset,
-            length,
+            text: deleted.clone(),
         };
         self.undo_stack.push(op);
         self.rope.remove(offset..offset + length);
@@ -69,19 +69,18 @@ impl Buffer {
                     let len = text.len();
                     self.redo_stack.push(EditOperation::Delete {
                         offset,
-                        length: len,
+                        text: text.clone(),
                     });
                     self.rope.remove(offset..offset + len);
                     Some((offset, offset))
                 }
-                EditOperation::Delete { offset, length } => {
-                    // For simplicity, we can't restore deleted text without storing it
-                    // In a real editor, you'd store the deleted text
+                EditOperation::Delete { offset, text } => {
                     self.redo_stack.push(EditOperation::Insert {
                         offset,
-                        text: String::new(),
+                        text: text.clone(),
                     });
-                    Some((offset, offset))
+                    self.rope.insert(offset, &text);
+                    Some((offset, offset + text.len()))
                 }
             }
         } else {
@@ -96,17 +95,17 @@ impl Buffer {
                     let len = text.len();
                     self.undo_stack.push(EditOperation::Delete {
                         offset,
-                        length: len,
+                        text: text.clone(),
                     });
                     self.rope.insert(offset, &text);
                     Some((offset, offset + len))
                 }
-                EditOperation::Delete { offset, length } => {
+                EditOperation::Delete { offset, text } => {
                     self.undo_stack.push(EditOperation::Insert {
                         offset,
-                        text: String::new(),
+                        text: text.clone(),
                     });
-                    self.rope.remove(offset..offset + length);
+                    self.rope.remove(offset..offset + text.len());
                     Some((offset, offset))
                 }
             }
