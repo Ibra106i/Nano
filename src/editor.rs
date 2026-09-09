@@ -146,46 +146,66 @@ impl Editor {
                 if ch == '\0' { return Task::none(); }
                 self.delete_selection();
                 let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                let delta = self.compute_insert_word_delta(o, &ch.to_string());
                 self.buffer.insert_char(o, ch);
                 self.cursor.move_right(&self.buffer.rope);
                 self.file_info.mark_modified();
-                self.update_counts();
+                self.char_count = self.buffer.len_chars();
+                self.apply_word_delta(delta);
             }
             Message::DeleteBackward => {
                 if self.cursor.has_selection() {
                     self.delete_selection();
+                    self.char_count = self.buffer.len_chars();
+                    self.update_counts(); // Full recount for selection delete (complex boundary)
                 } else {
                     let o = self.cursor.to_byte_offset(&self.buffer.rope);
-                    if o > 0 { self.buffer.delete(o - 1, 1); self.cursor.move_left(&self.buffer.rope); }
+                    if o > 0 { 
+                        let delta = self.compute_delete_word_delta(o - 1, 1);
+                        self.buffer.delete(o - 1, 1); 
+                        self.cursor.move_left(&self.buffer.rope); 
+                        self.apply_word_delta(delta);
+                    }
                 }
                 self.file_info.mark_modified();
-                self.update_counts();
+                self.char_count = self.buffer.len_chars();
             }
             Message::DeleteForward => {
                 if self.cursor.has_selection() {
                     self.delete_selection();
+                    self.char_count = self.buffer.len_chars();
+                    self.update_counts();
                 } else {
                     let o = self.cursor.to_byte_offset(&self.buffer.rope);
-                    if o < self.buffer.len_chars() { self.buffer.delete(o, 1); }
+                    if o < self.buffer.len_chars() { 
+                        let delta = self.compute_delete_word_delta(o, 1);
+                        self.buffer.delete(o, 1); 
+                        self.apply_word_delta(delta);
+                    }
                 }
                 self.file_info.mark_modified();
-                self.update_counts();
+                self.char_count = self.buffer.len_chars();
             }
             Message::Newline => {
                 self.delete_selection();
                 let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                let delta = self.compute_insert_word_delta(o, "\n");
                 self.buffer.insert_str(o, "\n");
                 self.cursor.move_down(&self.buffer.rope);
                 self.cursor.move_home();
                 self.file_info.mark_modified();
-                self.update_counts();
+                self.char_count = self.buffer.len_chars();
+                self.apply_word_delta(delta);
             }
             Message::Tab => {
                 self.delete_selection();
                 let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                let delta = self.compute_insert_word_delta(o, "    ");
                 self.buffer.insert_str(o, "    ");
                 self.cursor.col += 4;
                 self.file_info.mark_modified();
+                self.char_count = self.buffer.len_chars();
+                self.apply_word_delta(delta);
             }
             Message::CursorUp => self.cursor.move_up(&self.buffer.rope),
             Message::CursorDown => self.cursor.move_down(&self.buffer.rope),
@@ -219,28 +239,32 @@ impl Editor {
                     let end_offset = self.buffer.rope.line_to_char(end.0) + end.1;
                     let text = self.buffer.rope.slice(start_offset..end_offset).to_string();
                     let _ = self.clipboard.set_contents(text);
+                    let delta = self.compute_delete_word_delta(start_offset, end_offset - start_offset);
                     self.buffer.delete(start_offset, end_offset - start_offset);
                     self.cursor.line = start.0;
                     self.cursor.col = start.1;
                     self.cursor.clear_selection();
                     self.file_info.mark_modified();
-                    self.update_counts();
+                    self.char_count = self.buffer.len_chars();
+                    self.apply_word_delta(delta);
                 }
             }
             Message::Paste => {
                 if let Ok(text) = self.clipboard.get_contents() {
                     self.delete_selection();
                     let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                    let delta = self.compute_insert_word_delta(o, &text);
                     self.buffer.insert_str(o, &text);
                     for _ in 0..text.chars().count() {
                         self.cursor.move_right(&self.buffer.rope);
                     }
                     self.file_info.mark_modified();
-                    self.update_counts();
+                    self.char_count = self.buffer.len_chars();
+                    self.apply_word_delta(delta);
                 }
             }
-            Message::Undo => { self.buffer.undo(); self.file_info.mark_modified(); self.update_counts(); }
-            Message::Redo => { self.buffer.redo(); self.file_info.mark_modified(); self.update_counts(); }
+            Message::Undo => { self.buffer.undo(); self.file_info.mark_modified(); self.char_count = self.buffer.len_chars(); self.update_counts(); }
+            Message::Redo => { self.buffer.redo(); self.file_info.mark_modified(); self.char_count = self.buffer.len_chars(); self.update_counts(); }
             Message::Bold => self.bold_active = !self.bold_active,
             Message::Italic => self.italic_active = !self.italic_active,
             Message::Underline => self.underline_active = !self.underline_active,
@@ -254,8 +278,8 @@ impl Editor {
             Message::ReplaceTextChanged(t) => self.find_state.replace_text = t,
             Message::FindNext => { if let Some((l, c)) = self.find_state.find_next(&self.buffer.rope) { self.cursor.line = l; self.cursor.col = c; self.cursor.clear_selection(); } }
             Message::FindPrevious => { if let Some((l, c)) = self.find_state.find_previous(&self.buffer.rope) { self.cursor.line = l; self.cursor.col = c; self.cursor.clear_selection(); } }
-            Message::ReplaceOne => { self.find_state.replace_one(&mut self.buffer.rope, self.cursor.line, self.cursor.col); self.file_info.mark_modified(); self.update_counts(); }
-            Message::ReplaceAll => { if self.find_state.replace_all(&mut self.buffer.rope) > 0 { self.file_info.mark_modified(); self.update_counts(); } }
+            Message::ReplaceOne => { self.find_state.replace_one(&mut self.buffer.rope, self.cursor.line, self.cursor.col); self.file_info.mark_modified(); self.char_count = self.buffer.len_chars(); self.update_counts(); }
+            Message::ReplaceAll => { if self.find_state.replace_all(&mut self.buffer.rope) > 0 { self.file_info.mark_modified(); self.char_count = self.buffer.len_chars(); self.update_counts(); } }
             Message::ToggleLineNumbers => self.line_numbers = !self.line_numbers,
             Message::ToggleWordWrap => self.word_wrap = !self.word_wrap,
             Message::ToggleTheme => self.theme = self.theme.toggle(),
@@ -334,6 +358,50 @@ impl Editor {
         self.char_count = self.buffer.len_chars();
         let t = self.buffer.to_string();
         self.word_count = t.split_whitespace().count();
+    }
+
+    fn compute_insert_word_delta(&self, offset: usize, inserted: &str) -> i32 {
+        if inserted.trim().is_empty() {
+            return 0;
+        }
+        let context_chars = 200;
+        let start = offset.saturating_sub(context_chars);
+        let end = (offset + context_chars).min(self.buffer.len_chars());
+        let context: String = self.buffer.rope.slice(start..end).chars().collect();
+        let local_offset = offset - start;
+
+        let before_text = &context[..local_offset];
+        let after_text = &context[local_offset..];
+
+        let before_words = before_text.split_whitespace().count();
+        let after_words = (before_text.to_string() + inserted + after_text).split_whitespace().count();
+        
+        (after_words as i32) - (before_words as i32)
+    }
+
+    fn compute_delete_word_delta(&self, offset: usize, length: usize) -> i32 {
+        if length == 0 {
+            return 0;
+        }
+        let context_chars = 200;
+        let start = offset.saturating_sub(context_chars);
+        let end = (offset + length + context_chars).min(self.buffer.len_chars());
+        let context: String = self.buffer.rope.slice(start..end).chars().collect();
+        let local_offset = offset - start;
+        let local_end = local_offset + length.min(end - offset);
+
+        let before_text = &context[..local_offset];
+        let deleted_text = &context[local_offset..local_end];
+        let after_text = &context[local_end..];
+
+        let before_words = before_text.split_whitespace().count();
+        let after_words = (before_text.to_string() + after_text).split_whitespace().count();
+        
+        (after_words as i32) - (before_words as i32)
+    }
+
+    fn apply_word_delta(&mut self, delta: i32) {
+        self.word_count = (self.word_count as i32 + delta).max(0) as usize;
     }
 
     fn delete_selection(&mut self) {
