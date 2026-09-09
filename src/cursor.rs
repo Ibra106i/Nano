@@ -79,7 +79,15 @@ impl Cursor {
     }
 
     pub fn move_end(&mut self, rope: &Rope) {
-        self.col = rope.line(self.line).len_chars();
+        let line_len = rope.line(self.line).len_chars();
+        let last_line = rope.len_lines().saturating_sub(1);
+        
+        if self.line == last_line {
+            self.col = line_len;
+        } else {
+            // Exclude trailing newline for non-last lines
+            self.col = line_len.saturating_sub(1);
+        }
     }
 
     pub fn page_up(&mut self, rope: &Rope, page_size: usize) {
