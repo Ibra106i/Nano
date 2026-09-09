@@ -37,7 +37,7 @@ pub struct Editor {
     pub char_count: usize,
     pub last_mouse_pos: iced::Point,
     pub text_measurer: TextMeasurer,
-    clipboard: ClipboardContext,
+    clipboard: Option<ClipboardContext>,
     pub bold_active: bool,
     pub italic_active: bool,
     pub underline_active: bool,
@@ -45,6 +45,7 @@ pub struct Editor {
     pub left_margin: f32,
     pub right_margin: f32,
     pub mouse_dragging: bool,
+    clipboard_status: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -90,7 +91,7 @@ impl Editor {
             char_count: 0,
             last_mouse_pos: iced::Point::ORIGIN,
             text_measurer: TextMeasurer::new(),
-            clipboard: ClipboardContext::new().unwrap(),
+            clipboard: ClipboardContext::new().ok(),
             bold_active: false,
             italic_active: false,
             underline_active: false,
@@ -98,6 +99,7 @@ impl Editor {
             left_margin: 72.0,
             right_margin: 542.0,
             mouse_dragging: false,
+            clipboard_status: None,
         };
         editor.update_counts();
         (editor, Task::none())
@@ -230,7 +232,12 @@ impl Editor {
                         self.buffer.rope.line_to_char(start.0) + start.1
                             ..self.buffer.rope.line_to_char(end.0) + end.1
                     ).to_string();
-                    let _ = self.clipboard.set_contents(text);
+                    if let Some(ref mut cb) = self.clipboard {
+                        let _ = cb.set_contents(text);
+                        self.clipboard_status = None;
+                    } else {
+                        self.clipboard_status = Some("Clipboard unavailable".to_string());
+                    }
                 }
             }
             Message::Cut => {
@@ -238,7 +245,12 @@ impl Editor {
                     let start_offset = self.buffer.rope.line_to_char(start.0) + start.1;
                     let end_offset = self.buffer.rope.line_to_char(end.0) + end.1;
                     let text = self.buffer.rope.slice(start_offset..end_offset).to_string();
-                    let _ = self.clipboard.set_contents(text);
+                    if let Some(ref mut cb) = self.clipboard {
+                        let _ = cb.set_contents(text);
+                        self.clipboard_status = None;
+                    } else {
+                        self.clipboard_status = Some("Clipboard unavailable".to_string());
+                    }
                     let delta = self.compute_delete_word_delta(start_offset, end_offset - start_offset);
                     self.buffer.delete(start_offset, end_offset - start_offset);
                     self.cursor.line = start.0;
@@ -250,17 +262,24 @@ impl Editor {
                 }
             }
             Message::Paste => {
-                if let Ok(text) = self.clipboard.get_contents() {
-                    self.delete_selection();
-                    let o = self.cursor.to_byte_offset(&self.buffer.rope);
-                    let delta = self.compute_insert_word_delta(o, &text);
-                    self.buffer.insert_str(o, &text);
-                    for _ in 0..text.chars().count() {
-                        self.cursor.move_right(&self.buffer.rope);
+                if let Some(ref mut cb) = self.clipboard {
+                    if let Ok(text) = cb.get_contents() {
+                        self.delete_selection();
+                        let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                        let delta = self.compute_insert_word_delta(o, &text);
+                        self.buffer.insert_str(o, &text);
+                        for _ in 0..text.chars().count() {
+                            self.cursor.move_right(&self.buffer.rope);
+                        }
+                        self.file_info.mark_modified();
+                        self.char_count = self.buffer.len_chars();
+                        self.apply_word_delta(delta);
+                        self.clipboard_status = None;
+                    } else {
+                        self.clipboard_status = Some("Clipboard unavailable".to_string());
                     }
-                    self.file_info.mark_modified();
-                    self.char_count = self.buffer.len_chars();
-                    self.apply_word_delta(delta);
+                } else {
+                    self.clipboard_status = Some("Clipboard unavailable".to_string());
                 }
             }
             Message::Undo => { self.buffer.undo(); self.file_info.mark_modified(); self.char_count = self.buffer.len_chars(); self.update_counts(); }
@@ -751,7 +770,11 @@ impl Editor {
         let status_left = row![
             text(format!("Page 1 of 1 | Word count: {} | Characters: {} | UTF-8", self.word_count, self.char_count))
                 .size(11).color(Color::from_rgb(0.6, 0.6, 0.7)),
-        ];
+        ].push_maybe(
+            self.clipboard_status.as_ref().map(|msg| {
+                text(msg).size(11).color(Color::from_rgb(1.0, 0.4, 0.4))
+            })
+        );
         let zoom_pct = format!("{}%", (self.zoom * 100.0) as u32);
         let status_right = row![
             button(text("−").size(12)).padding(4).on_press(Message::ZoomOut),
