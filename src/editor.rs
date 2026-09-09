@@ -331,8 +331,8 @@ impl Editor {
     }
 
     fn update_counts(&mut self) {
+        self.char_count = self.buffer.len_chars();
         let t = self.buffer.to_string();
-        self.char_count = t.len();
         self.word_count = t.split_whitespace().count();
     }
 

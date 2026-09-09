@@ -36,23 +36,31 @@ impl FindState {
         self.show_replace = !self.show_replace;
     }
 
+    fn query_chars_lower(&self) -> Vec<char> {
+        self.query.to_lowercase().chars().collect()
+    }
+
     pub fn find_all(&self, rope: &Rope) -> Vec<(usize, usize)> {
         if self.query.is_empty() {
             return Vec::new();
         }
 
-        let text = rope.to_string();
-        let query = self.query.to_lowercase();
-        let mut matches = Vec::new();
-        let mut start = 0;
+        let query_lower = self.query_chars_lower();
+        let query_len = query_len(&query_lower);
+        if query_len == 0 {
+            return Vec::new();
+        }
 
-        while let Some(pos) = text[start..].to_lowercase().find(&query) {
-            let absolute_pos = start + pos;
-            let line = rope.char_to_line(absolute_pos);
-            let line_start = rope.line_to_char(line);
-            let col = absolute_pos - line_start;
-            matches.push((line, col));
-            start = absolute_pos + 1;
+        let text_lower: Vec<char> = rope.chars().map(|c| c.to_lowercase().next().unwrap()).collect();
+        let mut matches = Vec::new();
+
+        for i in 0..=text_lower.len().saturating_sub(query_len) {
+            if text_lower[i..i + query_len] == query_lower[..] {
+                let line = rope.char_to_line(i);
+                let line_start = rope.line_to_char(line);
+                let col = i - line_start;
+                matches.push((line, col));
+            }
         }
 
         matches
@@ -107,28 +115,28 @@ impl FindState {
     }
 
     pub fn replace_one(&self, rope: &mut Rope, cursor_line: usize, cursor_col: usize) -> bool {
-        if self.query.is_empty() || self.query != self.replace_text {
+        if self.query.is_empty() {
             return false;
         }
 
-        let text = rope.to_string();
-        let query = self.query.to_lowercase();
-        
-        // Find the match at or after cursor position
-        let mut start = 0;
-        let line_start = rope.line_to_char(cursor_line) + cursor_col;
-        
-        while let Some(pos) = text[start..].to_lowercase().find(&query) {
-            let absolute_pos = start + pos;
-            if absolute_pos >= line_start {
-                let end = absolute_pos + self.query.len();
-                rope.remove(absolute_pos..end);
-                rope.insert(absolute_pos, &self.replace_text);
+        let query_lower = self.query_chars_lower();
+        let query_len = query_len(&query_lower);
+        if query_len == 0 {
+            return false;
+        }
+
+        let text_lower: Vec<char> = rope.chars().map(|c| c.to_lowercase().next().unwrap()).collect();
+        let cursor_pos = rope.line_to_char(cursor_line) + cursor_col;
+
+        for i in cursor_pos..=text_lower.len().saturating_sub(query_len) {
+            if text_lower[i..i + query_len] == query_lower[..] {
+                let end = i + query_len;
+                rope.remove(i..end);
+                rope.insert(i, &self.replace_text);
                 return true;
             }
-            start = absolute_pos + 1;
         }
-        
+
         false
     }
 
@@ -137,19 +145,33 @@ impl FindState {
             return 0;
         }
 
-        let text = rope.to_string();
-        let query = self.query.to_lowercase();
-        let mut count = 0;
-        let mut result = String::new();
-        let mut start = 0;
-
-        while let Some(pos) = text[start..].to_lowercase().find(&query) {
-            result.push_str(&text[start..start + pos]);
-            result.push_str(&self.replace_text);
-            start = start + pos + self.query.len();
-            count += 1;
+        let query_lower = self.query_chars_lower();
+        let query_len = query_len(&query_lower);
+        if query_len == 0 {
+            return 0;
         }
-        result.push_str(&text[start..]);
+
+        let text_lower: Vec<char> = rope.chars().map(|c| c.to_lowercase().next().unwrap()).collect();
+        let text_chars: Vec<char> = rope.chars().collect();
+        let mut result = String::new();
+        let mut count = 0;
+        let mut i = 0;
+
+        while i <= text_lower.len().saturating_sub(query_len) {
+            if text_lower[i..i + query_len] == query_lower[..] {
+                result.push_str(&self.replace_text);
+                i += query_len;
+                count += 1;
+            } else {
+                result.push(text_chars[i]);
+                i += 1;
+            }
+        }
+
+        while i < text_chars.len() {
+            result.push(text_chars[i]);
+            i += 1;
+        }
 
         if count > 0 {
             *rope = Rope::from_str(&result);
@@ -157,4 +179,8 @@ impl FindState {
 
         count
     }
+}
+
+fn query_len(chars: &[char]) -> usize {
+    chars.len()
 }

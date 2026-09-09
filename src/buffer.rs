@@ -66,7 +66,7 @@ impl Buffer {
         if let Some(op) = self.undo_stack.pop() {
             match op {
                 EditOperation::Insert { offset, text } => {
-                    let len = text.len();
+                    let len = text.chars().count();
                     self.redo_stack.push(EditOperation::Delete {
                         offset,
                         text: text.clone(),
@@ -80,7 +80,7 @@ impl Buffer {
                         text: text.clone(),
                     });
                     self.rope.insert(offset, &text);
-                    Some((offset, offset + text.len()))
+                    Some((offset, offset + text.chars().count()))
                 }
             }
         } else {
@@ -92,7 +92,7 @@ impl Buffer {
         if let Some(op) = self.redo_stack.pop() {
             match op {
                 EditOperation::Insert { offset, text } => {
-                    let len = text.len();
+                    let len = text.chars().count();
                     self.undo_stack.push(EditOperation::Delete {
                         offset,
                         text: text.clone(),
@@ -105,7 +105,7 @@ impl Buffer {
                         offset,
                         text: text.clone(),
                     });
-                    self.rope.remove(offset..offset + text.len());
+                    self.rope.remove(offset..offset + text.chars().count());
                     Some((offset, offset))
                 }
             }
