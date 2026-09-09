@@ -70,38 +70,37 @@ pub enum Message {
 
 impl Editor {
     pub fn new() -> (Self, Task<Message>) {
-        (
-            Editor {
-                buffer: Buffer::from_str("The Architectural Future of Modular Interfaces\n\nModern application viewports have transcended the static bounding box of early GUI metaphors. As workflows converge toward instant collaboration and high-density state manipulation, interface layers require a decoupled architecture capable of contextual mutation without cognitive disruption.\n\n1. Contextual Surface Reconfiguration\n\nBy isolating the canvas sheet from ancillary tool surfaces, typography rendering engines preserve deterministic layout stability. This tactile boundary guarantees that document scaling remains exact regardless of external zoom multipliers or multi-window docking arrangements.\n\n2. Empirical Composition Performance\n\nComparative benchmarks across three production editorial pipelines highlight substantial latency drops when decoupled state trees govern character layout."),
-                cursor: Cursor::new(),
-                file_info: FileInfo::new(),
-                theme: EditorTheme::Dark,
-                syntax: SyntaxHighlighter::new(),
-                find_state: FindState::new(),
-                scroll_offset: 0.0,
-                line_numbers: true,
-                word_wrap: false,
-                viewport_height: 800.0,
-                line_height: 26.0,
-                show_sidebar: true,
-                zoom: 1.0,
-                font_family: "Source Serif 4".to_string(),
-                font_size: 12,
-                word_count: 348,
-                char_count: 2140,
-                last_mouse_pos: iced::Point::ORIGIN,
-                text_measurer: TextMeasurer::new(),
-                clipboard: ClipboardContext::new().unwrap(),
-                bold_active: false,
-                italic_active: false,
-                underline_active: false,
-                strikethrough_active: false,
-                left_margin: 72.0,
-                right_margin: 542.0,
-                mouse_dragging: false,
-            },
-            Task::none(),
-        )
+        let mut editor = Editor {
+            buffer: Buffer::from_str("The Architectural Future of Modular Interfaces\n\nModern application viewports have transcended the static bounding box of early GUI metaphors. As workflows converge toward instant collaboration and high-density state manipulation, interface layers require a decoupled architecture capable of contextual mutation without cognitive disruption.\n\n1. Contextual Surface Reconfiguration\n\nBy isolating the canvas sheet from ancillary tool surfaces, typography rendering engines preserve deterministic layout stability. This tactile boundary guarantees that document scaling remains exact regardless of external zoom multipliers or multi-window docking arrangements.\n\n2. Empirical Composition Performance\n\nComparative benchmarks across three production editorial pipelines highlight substantial latency drops when decoupled state trees govern character layout."),
+            cursor: Cursor::new(),
+            file_info: FileInfo::new(),
+            theme: EditorTheme::Dark,
+            syntax: SyntaxHighlighter::new(),
+            find_state: FindState::new(),
+            scroll_offset: 0.0,
+            line_numbers: true,
+            word_wrap: false,
+            viewport_height: 800.0,
+            line_height: 26.0,
+            show_sidebar: true,
+            zoom: 1.0,
+            font_family: "Source Serif 4".to_string(),
+            font_size: 12,
+            word_count: 0,
+            char_count: 0,
+            last_mouse_pos: iced::Point::ORIGIN,
+            text_measurer: TextMeasurer::new(),
+            clipboard: ClipboardContext::new().unwrap(),
+            bold_active: false,
+            italic_active: false,
+            underline_active: false,
+            strikethrough_active: false,
+            left_margin: 72.0,
+            right_margin: 542.0,
+            mouse_dragging: false,
+        };
+        editor.update_counts();
+        (editor, Task::none())
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -110,6 +109,7 @@ impl Editor {
                 self.buffer = Buffer::new();
                 self.cursor = Cursor::new();
                 self.file_info = FileInfo::new();
+                self.update_counts();
             }
             Message::OpenFile => {
                 if let Some(path) = file_io::open_file_dialog() {
