@@ -454,6 +454,13 @@ pub fn find_bar(ctx: &ViewContext) -> Element<Message> {
     let close_btn = button(text("\u{2715}").size(12).color(Color::from_rgb(0.6, 0.6, 0.7)))
         .padding([4, 8]).on_press(Message::FindToggle);
 
+    let counter = if ctx.find_state.total_matches > 0 {
+        text(format!("{}/{}", ctx.find_state.current_match.map(|m| m + 1).unwrap_or(0), ctx.find_state.total_matches))
+            .size(11).color(Color::from_rgb(0.5, 0.5, 0.6))
+    } else {
+        text("").size(11)
+    };
+
     let find_row = row![
         text_input("Find...", &ctx.find_state.query)
             .on_input(Message::FindQueryChanged)
@@ -462,8 +469,7 @@ pub fn find_bar(ctx: &ViewContext) -> Element<Message> {
             .size(12),
         button(text("\u{25B6}").size(10)).padding([4, 6]).on_press(Message::FindNext),
         button(text("\u{25C0}").size(10)).padding([4, 6]).on_press(Message::FindPrevious),
-        text(format!("{}/{}", ctx.find_state.current_match.map(|m| m + 1).unwrap_or(0), ctx.find_state.total_matches))
-            .size(11).color(Color::from_rgb(0.5, 0.5, 0.6)),
+        counter,
         close_btn,
     ].spacing(6).align_y(iced::Alignment::Center);
 
