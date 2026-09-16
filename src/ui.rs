@@ -5,6 +5,7 @@ use crate::editor::Message;
 use crate::buffer::Buffer;
 use crate::cursor::Cursor;
 use crate::find::FindState;
+use crate::syntax::SyntaxHighlighter;
 use crate::theme::Theme as EditorTheme;
 use crate::layout;
 
@@ -27,6 +28,7 @@ pub struct ViewContext<'a> {
     pub zoom: f32,
     pub clipboard_status: Option<&'a str>,
     pub find_state: &'a FindState,
+    pub syntax: &'a SyntaxHighlighter,
     pub line_height: f32,
 }
 
@@ -204,11 +206,9 @@ pub fn page_content(ctx: &ViewContext) -> Element<Message> {
         let lt: String = ctx.buffer.line(li).chars().collect();
         let lt_len = lt.len();
         let sz = if li == 0 { 30.0 } else if lt.starts_with(|c: char| c.is_numeric()) { 18.0 } else { 15.0 };
-        let clr = if li == 0 { Color::from_rgb(0.95, 0.95, 1.0) }
-                  else if lt.starts_with(|c: char| c.is_numeric()) { Color::from_rgb(0.85, 0.85, 0.92) }
-                  else { Color::from_rgb(0.75, 0.75, 0.82) };
 
         let is_cursor_line = li == ctx.cursor.line;
+        let highlighted = ctx.syntax.highlight_line(&lt);
 
         if has_sel {
             let (s_line, s_col) = sel_range.unwrap().0;
@@ -216,84 +216,146 @@ pub fn page_content(ctx: &ViewContext) -> Element<Message> {
 
             let sel_start = if li == s_line { s_col } else { 0 };
             let sel_end = if li == e_line { e_col } else { lt_len };
-
             let has_sel_on_line = li >= s_line && li <= e_line && sel_start < sel_end;
 
             if has_sel_on_line {
-                let before: String = lt.chars().take(sel_start).collect();
-                let selected: String = lt.chars().skip(sel_start).take(sel_end - sel_start).collect();
-                let after: String = lt.chars().skip(sel_end).collect();
-
-                let mut parts: Vec<Element<Message>> = Vec::new();
-                if !before.is_empty() {
-                    parts.push(text(before).size(sz).color(clr).into());
-                }
-                if !selected.is_empty() {
-                    parts.push(
-                        container(text(selected).size(sz).color(Color::WHITE))
-                            .style(move |_: &iced::Theme| container::Style {
-                                background: Some(sel_color.into()),
-                                border: iced::Border::default().rounded(2),
-                                ..Default::default()
-                            }).into()
-                    );
-                }
-                if !after.is_empty() {
-                    parts.push(text(after).size(sz).color(clr).into());
-                }
-
-                if is_cursor_line {
-                    let before_cur: String = lt.chars().take(ctx.cursor.col).collect();
-                    let after_cur: String = lt.chars().skip(ctx.cursor.col).collect();
-                    parts = Vec::new();
-                    if !before_cur.is_empty() {
-                        parts.push(text(before_cur).size(sz).color(clr).into());
-                    }
-                    parts.push(
-                        container(text(" ").size(sz)).width(2).height(iced::Length::Fixed(sz))
-                            .style(|_: &iced::Theme| container::Style {
-                                background: Some(ctx.theme.cursor_color().into()),
-                                ..Default::default()
-                            }).into()
-                    );
-                    if !after_cur.is_empty() {
-                        parts.push(text(after_cur).size(sz).color(clr).into());
-                    }
-                }
-
+                let parts = render_line_with_selection(&highlighted, sz, sel_color, sel_start, sel_end, is_cursor_line, ctx.cursor.col, ctx.theme.cursor_color());
                 content = content.push(row(parts).align_y(iced::Alignment::Center));
             } else if is_cursor_line {
-                let before: String = lt.chars().take(ctx.cursor.col).collect();
-                let after: String = lt.chars().skip(ctx.cursor.col).collect();
-                let line_row = row![
-                    text(before).size(sz).color(clr),
-                    container(text(" ").size(sz)).width(2).height(iced::Length::Fixed(sz)).style(|_: &iced::Theme| container::Style {
-                        background: Some(ctx.theme.cursor_color().into()),
-                        ..Default::default()
-                    }),
-                    text(after).size(sz).color(clr),
-                ].align_y(iced::Alignment::Center);
-                content = content.push(line_row);
+                let parts = render_line_with_cursor(&highlighted, sz, ctx.cursor.col, ctx.theme.cursor_color());
+                content = content.push(row(parts).align_y(iced::Alignment::Center));
             } else {
-                content = content.push(text(lt).size(sz).color(clr));
+                let parts: Vec<Element<Message>> = highlighted.into_iter()
+                    .map(|(t, c)| text(t).size(sz).color(c).into())
+                    .collect();
+                content = content.push(row(parts).align_y(iced::Alignment::Center));
             }
         } else if is_cursor_line {
-            let before: String = lt.chars().take(ctx.cursor.col).collect();
-            let after: String = lt.chars().skip(ctx.cursor.col).collect();
-            let line_row = row![
-                text(before).size(sz).color(clr),
-                container(text(" ").size(sz)).width(2).height(iced::Length::Fixed(sz)).style(|_: &iced::Theme| container::Style {
-                    background: Some(ctx.theme.cursor_color().into()),
-                    ..Default::default()
-                }),
-                text(after).size(sz).color(clr),
-            ].align_y(iced::Alignment::Center);
-            content = content.push(line_row);
+            let parts = render_line_with_cursor(&highlighted, sz, ctx.cursor.col, ctx.theme.cursor_color());
+            content = content.push(row(parts).align_y(iced::Alignment::Center));
         } else {
-            content = content.push(text(lt).size(sz).color(clr));
+            let parts: Vec<Element<Message>> = highlighted.into_iter()
+                .map(|(t, c)| text(t).size(sz).color(c).into())
+                .collect();
+            content = content.push(row(parts).align_y(iced::Alignment::Center));
         }
     }
     content.into()
+}
+
+fn render_line_with_selection(
+    highlighted: &[(String, Color)],
+    sz: f32,
+    sel_color: Color,
+    sel_start: usize,
+    sel_end: usize,
+    has_cursor: bool,
+    cursor_col: usize,
+    cursor_color: Color,
+) -> Vec<Element<'static, Message>> {
+    let mut parts: Vec<Element<Message>> = Vec::new();
+    let mut char_pos = 0;
+
+    for (seg_text, seg_color) in highlighted {
+        let seg_len = seg_text.chars().count();
+        let seg_end = char_pos + seg_len;
+
+        if seg_end <= sel_start || char_pos >= sel_end {
+            let outside = char_pos < sel_start;
+            let color = if outside { *seg_color } else { *seg_color };
+            if has_cursor && char_pos <= cursor_col && cursor_col <= seg_end && !outside {
+                let before_cur: String = seg_text.chars().take(cursor_col - char_pos).collect();
+                let after_cur: String = seg_text.chars().skip(cursor_col - char_pos).collect();
+                if !before_cur.is_empty() {
+                    parts.push(text(before_cur).size(sz).color(Color::WHITE).into());
+                }
+                parts.push(cursor_block(sz, cursor_color));
+                if !after_cur.is_empty() {
+                    parts.push(text(after_cur).size(sz).color(Color::WHITE).into());
+                }
+            } else {
+                parts.push(text(seg_text.clone()).size(sz).color(color).into());
+            }
+        } else {
+            let before_sel: String = seg_text.chars().take(sel_start.saturating_sub(char_pos)).collect();
+            let in_sel: String = seg_text.chars().skip(sel_start.saturating_sub(char_pos)).take(seg_len - sel_start.saturating_sub(char_pos)).take(sel_end.saturating_sub(char_pos + (sel_start.saturating_sub(char_pos)))).collect();
+            let after_sel: String = seg_text.chars().skip(seg_len - (seg_end.saturating_sub(sel_end))).collect();
+
+            if !before_sel.is_empty() {
+                parts.push(text(before_sel).size(sz).color(*seg_color).into());
+            }
+            if !in_sel.is_empty() {
+                if has_cursor && char_pos <= cursor_col && cursor_col <= seg_end {
+                    let sel_before_cur: String = in_sel.chars().take(cursor_col - char_pos - (sel_start.saturating_sub(char_pos))).collect();
+                    let sel_after_cur: String = in_sel.chars().skip(cursor_col - char_pos - (sel_start.saturating_sub(char_pos))).collect();
+                    if !sel_before_cur.is_empty() {
+                        parts.push(selected_text(sz, sel_before_cur, sel_color));
+                    }
+                    parts.push(cursor_block(sz, cursor_color));
+                    if !sel_after_cur.is_empty() {
+                        parts.push(selected_text(sz, sel_after_cur, sel_color));
+                    }
+                } else {
+                    parts.push(selected_text(sz, in_sel, sel_color));
+                }
+            }
+            if !after_sel.is_empty() {
+                parts.push(text(after_sel).size(sz).color(*seg_color).into());
+            }
+        }
+
+        char_pos = seg_end;
+    }
+    parts
+}
+
+fn render_line_with_cursor(
+    highlighted: &[(String, Color)],
+    sz: f32,
+    cursor_col: usize,
+    cursor_color: Color,
+) -> Vec<Element<'static, Message>> {
+    let mut parts: Vec<Element<Message>> = Vec::new();
+    let mut char_pos = 0;
+
+    for (seg_text, seg_color) in highlighted {
+        let seg_len = seg_text.chars().count();
+        let seg_end = char_pos + seg_len;
+
+        if cursor_col < char_pos || cursor_col > seg_end {
+            parts.push(text(seg_text.clone()).size(sz).color(*seg_color).into());
+        } else {
+            let before: String = seg_text.chars().take(cursor_col - char_pos).collect();
+            let after: String = seg_text.chars().skip(cursor_col - char_pos).collect();
+            if !before.is_empty() {
+                parts.push(text(before).size(sz).color(*seg_color).into());
+            }
+            parts.push(cursor_block(sz, cursor_color));
+            if !after.is_empty() {
+                parts.push(text(after).size(sz).color(*seg_color).into());
+            }
+        }
+
+        char_pos = seg_end;
+    }
+    parts
+}
+
+fn selected_text<'a>(sz: f32, t: String, sel_color: Color) -> Element<'a, Message> {
+    container(text(t).size(sz).color(Color::WHITE))
+        .style(move |_: &iced::Theme| container::Style {
+            background: Some(sel_color.into()),
+            border: iced::Border::default().rounded(2),
+            ..Default::default()
+        }).into()
+}
+
+fn cursor_block<'a>(sz: f32, cursor_color: Color) -> Element<'a, Message> {
+    container(text(" ").size(sz)).width(2).height(iced::Length::Fixed(sz))
+        .style(move |_: &iced::Theme| container::Style {
+            background: Some(cursor_color.into()),
+            ..Default::default()
+        }).into()
 }
 
 pub fn sidebar_container(ctx: &ViewContext) -> Element<Message> {

@@ -11,6 +11,7 @@ use crate::measure::TextMeasurer;
 use crate::layout;
 use crate::ui;
 
+use std::path::PathBuf;
 use copypasta::{ClipboardContext, ClipboardProvider};
 
 impl Default for Editor {
@@ -48,6 +49,7 @@ pub struct Editor {
     pub right_margin: f32,
     pub mouse_dragging: bool,
     clipboard_status: Option<String>,
+    pending_file_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +104,7 @@ impl Editor {
             right_margin: 542.0,
             mouse_dragging: false,
             clipboard_status: None,
+            pending_file_path: None,
         };
         editor.update_counts();
         (editor, Task::none())
@@ -117,6 +120,7 @@ impl Editor {
             }
             Message::OpenFile => {
                 if let Some(path) = file_io::open_file_dialog() {
+                    self.pending_file_path = Some(path.clone());
                     let p = path.clone();
                     return Task::perform(async move { file_io::read_file(&p) }, |r| Message::FileOpened(r));
                 }
@@ -124,8 +128,15 @@ impl Editor {
             Message::FileOpened(Ok(c)) => {
                 self.buffer = Buffer::from_str(&c);
                 self.cursor = Cursor::new();
-                self.file_info = FileInfo::new();
+                if let Some(ref path) = self.pending_file_path {
+                    self.file_info = FileInfo::with_path(path.clone());
+                    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    self.syntax.language = SyntaxHighlighter::detect_language(filename);
+                } else {
+                    self.file_info = FileInfo::new();
+                }
                 self.file_info.mark_saved();
+                self.pending_file_path = None;
                 self.update_counts();
             }
             Message::FileOpened(_) => {}
@@ -440,6 +451,7 @@ impl Editor {
             zoom: self.zoom,
             clipboard_status: self.clipboard_status.as_deref(),
             find_state: &self.find_state,
+            syntax: &self.syntax,
             line_height: self.line_height,
         };
 
