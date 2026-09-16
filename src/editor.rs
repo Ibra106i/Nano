@@ -217,7 +217,8 @@ impl Editor {
                 let o = self.cursor.to_byte_offset(&self.buffer.rope);
                 let delta = self.compute_insert_word_delta(o, "    ");
                 self.buffer.insert_str(o, "    ");
-                self.cursor.col += 4;
+                let line_len = self.buffer.line(self.cursor.line).len_chars();
+                self.cursor.col = (self.cursor.col + 4).min(line_len);
                 self.file_info.mark_modified();
                 self.char_count = self.buffer.len_chars();
                 self.apply_word_delta(delta);
