@@ -1,4 +1,6 @@
 use std::fs;
+use std::hash::{Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -12,6 +14,7 @@ pub enum FileOperation {
 pub struct FileInfo {
     pub path: Option<PathBuf>,
     pub is_modified: bool,
+    saved_hash: u64,
 }
 
 impl FileInfo {
@@ -19,6 +22,7 @@ impl FileInfo {
         FileInfo {
             path: None,
             is_modified: false,
+            saved_hash: 0,
         }
     }
 
@@ -26,6 +30,7 @@ impl FileInfo {
         FileInfo {
             path: Some(path),
             is_modified: false,
+            saved_hash: 0,
         }
     }
 
@@ -53,6 +58,20 @@ impl FileInfo {
 
     pub fn mark_saved(&mut self) {
         self.is_modified = false;
+    }
+
+    pub fn compute_hash(content: &str) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        content.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    pub fn update_saved_hash(&mut self, content: &str) {
+        self.saved_hash = Self::compute_hash(content);
+    }
+
+    pub fn check_modified(&mut self, content: &str) {
+        self.is_modified = Self::compute_hash(content) != self.saved_hash;
     }
 }
 

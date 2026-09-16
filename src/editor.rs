@@ -116,6 +116,7 @@ impl Editor {
                 self.buffer = Buffer::new();
                 self.cursor = Cursor::new();
                 self.file_info = FileInfo::new();
+                self.file_info.update_saved_hash("");
                 self.update_counts();
             }
             Message::OpenFile => {
@@ -135,6 +136,7 @@ impl Editor {
                 } else {
                     self.file_info = FileInfo::new();
                 }
+                self.file_info.update_saved_hash(&c);
                 self.file_info.mark_saved();
                 self.pending_file_path = None;
                 self.update_counts();
@@ -155,7 +157,10 @@ impl Editor {
                     return Task::perform(async move { file_io::write_file(&path, &c) }, |r| Message::FileSaved(r));
                 }
             }
-            Message::FileSaved(Ok(())) => self.file_info.mark_saved(),
+            Message::FileSaved(Ok(())) => {
+                self.file_info.update_saved_hash(&self.buffer.to_string());
+                self.file_info.mark_saved();
+            }
             Message::FileSaved(_) => {}
             Message::InsertChar(ch) => {
                 if ch == '\0' { return Task::none(); }
@@ -296,8 +301,18 @@ impl Editor {
                     self.clipboard_status = Some("Clipboard unavailable".to_string());
                 }
             }
-            Message::Undo => { self.buffer.undo(); self.file_info.mark_modified(); self.char_count = self.buffer.len_chars(); self.update_counts(); }
-            Message::Redo => { self.buffer.redo(); self.file_info.mark_modified(); self.char_count = self.buffer.len_chars(); self.update_counts(); }
+            Message::Undo => {
+                self.buffer.undo();
+                self.char_count = self.buffer.len_chars();
+                self.update_counts();
+                self.file_info.check_modified(&self.buffer.to_string());
+            }
+            Message::Redo => {
+                self.buffer.redo();
+                self.char_count = self.buffer.len_chars();
+                self.update_counts();
+                self.file_info.check_modified(&self.buffer.to_string());
+            }
             Message::Bold => self.bold_active = !self.bold_active,
             Message::Italic => self.italic_active = !self.italic_active,
             Message::Underline => self.underline_active = !self.underline_active,
