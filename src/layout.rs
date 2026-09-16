@@ -16,3 +16,23 @@ pub fn page_top() -> f32 {
 pub fn page_left() -> f32 {
     LINE_NUMBER_GUTTER_LEFT
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn page_top_is_sum_of_bars() {
+        assert_eq!(page_top(), TITLE_BAR_H + MENU_BAR_H + TOOLBAR_H + RULER_H);
+    }
+
+    #[test]
+    fn page_left_is_gutter_left() {
+        assert_eq!(page_left(), LINE_NUMBER_GUTTER_LEFT);
+    }
+
+    #[test]
+    fn gutter_left_is_sum() {
+        assert_eq!(LINE_NUMBER_GUTTER_LEFT, LINE_NUMBER_WIDTH + GUTTER_SPACING + 1.0);
+    }
+}

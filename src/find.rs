@@ -184,3 +184,232 @@ impl FindState {
 fn query_len(chars: &[char]) -> usize {
     chars.len()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ropey::Rope;
+
+    fn rope(text: &str) -> Rope {
+        Rope::from_str(text)
+    }
+
+    #[test]
+    fn new_find_state() {
+        let fs = FindState::new();
+        assert!(fs.query.is_empty());
+        assert!(fs.replace_text.is_empty());
+        assert!(!fs.show_find_bar);
+        assert!(!fs.show_replace);
+        assert!(fs.current_match.is_none());
+        assert_eq!(fs.total_matches, 0);
+    }
+
+    #[test]
+    fn toggle_show_find_bar() {
+        let mut fs = FindState::new();
+        fs.toggle();
+        assert!(fs.show_find_bar);
+        fs.toggle();
+        assert!(!fs.show_find_bar);
+        assert!(fs.query.is_empty()); // clears on hide
+    }
+
+    #[test]
+    fn toggle_replace() {
+        let mut fs = FindState::new();
+        fs.toggle_replace();
+        assert!(fs.show_replace);
+        fs.toggle_replace();
+        assert!(!fs.show_replace);
+    }
+
+    #[test]
+    fn find_all_basic() {
+        let r = rope("hello world hello");
+        let mut fs = FindState::new();
+        fs.query = "hello".to_string();
+        let matches = fs.find_all(&r);
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0], (0, 0));
+        assert_eq!(matches[1], (0, 12));
+    }
+
+    #[test]
+    fn find_all_case_insensitive() {
+        let r = rope("Hello HELLO hello");
+        let mut fs = FindState::new();
+        fs.query = "hello".to_string();
+        let matches = fs.find_all(&r);
+        assert_eq!(matches.len(), 3);
+    }
+
+    #[test]
+    fn find_all_empty_query() {
+        let r = rope("hello");
+        let fs = FindState::new();
+        assert!(fs.find_all(&r).is_empty());
+    }
+
+    #[test]
+    fn find_all_no_matches() {
+        let r = rope("hello world");
+        let mut fs = FindState::new();
+        fs.query = "xyz".to_string();
+        assert!(fs.find_all(&r).is_empty());
+    }
+
+    #[test]
+    fn find_all_multiline() {
+        let r = rope("line1\nline2\nline3");
+        let mut fs = FindState::new();
+        fs.query = "line".to_string();
+        let matches = fs.find_all(&r);
+        assert_eq!(matches.len(), 3);
+        assert_eq!(matches[0], (0, 0));
+        assert_eq!(matches[1], (1, 0));
+        assert_eq!(matches[2], (2, 0));
+    }
+
+    #[test]
+    fn find_next_first_call() {
+        let r = rope("aaa");
+        let mut fs = FindState::new();
+        fs.query = "a".to_string();
+        let result = fs.find_next(&r);
+        assert_eq!(result, Some((0, 0)));
+        assert_eq!(fs.current_match, Some(0));
+    }
+
+    #[test]
+    fn find_next_advances() {
+        let r = rope("a b a b");
+        let mut fs = FindState::new();
+        fs.query = "a".to_string();
+        fs.find_next(&r); // match 0
+        let result = fs.find_next(&r); // match 1
+        assert_eq!(result, Some((0, 4)));
+    }
+
+    #[test]
+    fn find_next_wraps_around() {
+        let r = rope("a b a b");
+        let mut fs = FindState::new();
+        fs.query = "a".to_string();
+        fs.find_next(&r); // 0
+        fs.find_next(&r); // 1
+        let result = fs.find_next(&r); // wraps to 0
+        assert_eq!(result, Some((0, 0)));
+    }
+
+    #[test]
+    fn find_previous_first_call() {
+        let r = rope("a b a b");
+        let mut fs = FindState::new();
+        fs.query = "a".to_string();
+        let result = fs.find_previous(&r);
+        // current_match is None → prev = 0 (first match)
+        assert_eq!(result, Some((0, 0)));
+    }
+
+    #[test]
+    fn find_previous_goes_back() {
+        let r = rope("a b a b");
+        let mut fs = FindState::new();
+        fs.query = "a".to_string();
+        fs.find_next(&r); // match 0
+        fs.find_next(&r); // match 1
+        let result = fs.find_previous(&r); // back to 0
+        assert_eq!(result, Some((0, 0)));
+    }
+
+    #[test]
+    fn find_previous_wraps_around() {
+        let r = rope("a b a b");
+        let mut fs = FindState::new();
+        fs.query = "a".to_string();
+        // current_match is None → prev wraps to last match (index 1)
+        let result = fs.find_previous(&r);
+        assert_eq!(result, Some((0, 4)));
+    }
+
+    #[test]
+    fn replace_one_basic() {
+        let mut r = rope("hello world hello");
+        let mut fs = FindState::new();
+        fs.query = "hello".to_string();
+        fs.replace_text = "hi".to_string();
+        let replaced = fs.replace_one(&mut r, 0, 0);
+        assert!(replaced);
+        let result: String = r.chars().collect();
+        assert_eq!(result, "hi world hello");
+    }
+
+    #[test]
+    fn replace_one_after_cursor() {
+        let mut r = rope("hello world hello");
+        let mut fs = FindState::new();
+        fs.query = "hello".to_string();
+        fs.replace_text = "hi".to_string();
+        // cursor at col 6 (after first "hello"), should replace second "hello"
+        let replaced = fs.replace_one(&mut r, 0, 6);
+        assert!(replaced);
+        let result: String = r.chars().collect();
+        assert_eq!(result, "hello world hi");
+    }
+
+    #[test]
+    fn replace_one_no_match() {
+        let mut r = rope("hello world");
+        let mut fs = FindState::new();
+        fs.query = "xyz".to_string();
+        fs.replace_text = "abc".to_string();
+        assert!(!fs.replace_one(&mut r, 0, 0));
+    }
+
+    #[test]
+    fn replace_one_empty_query() {
+        let mut r = rope("hello");
+        let fs = FindState::new();
+        assert!(!fs.replace_one(&mut r, 0, 0));
+    }
+
+    #[test]
+    fn replace_all_basic() {
+        let mut r = rope("aaa");
+        let mut fs = FindState::new();
+        fs.query = "a".to_string();
+        fs.replace_text = "b".to_string();
+        let count = fs.replace_all(&mut r);
+        assert_eq!(count, 3);
+        let result: String = r.chars().collect();
+        assert_eq!(result, "bbb");
+    }
+
+    #[test]
+    fn replace_all_partial() {
+        let mut r = rope("hello world hello");
+        let mut fs = FindState::new();
+        fs.query = "hello".to_string();
+        fs.replace_text = "hi".to_string();
+        let count = fs.replace_all(&mut r);
+        assert_eq!(count, 2);
+        let result: String = r.chars().collect();
+        assert_eq!(result, "hi world hi");
+    }
+
+    #[test]
+    fn replace_all_empty_query() {
+        let mut r = rope("hello");
+        let fs = FindState::new();
+        assert_eq!(fs.replace_all(&mut r), 0);
+    }
+
+    #[test]
+    fn replace_all_no_matches() {
+        let mut r = rope("hello");
+        let mut fs = FindState::new();
+        fs.query = "xyz".to_string();
+        assert_eq!(fs.replace_all(&mut r), 0);
+    }
+}

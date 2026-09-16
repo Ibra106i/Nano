@@ -127,3 +127,103 @@ impl SyntaxHighlighter {
         result
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detect_rust() {
+        assert_eq!(SyntaxHighlighter::detect_language("main.rs"), Language::Rust);
+    }
+
+    #[test]
+    fn detect_python() {
+        assert_eq!(SyntaxHighlighter::detect_language("app.py"), Language::Python);
+    }
+
+    #[test]
+    fn detect_javascript() {
+        assert_eq!(SyntaxHighlighter::detect_language("index.js"), Language::JavaScript);
+        assert_eq!(SyntaxHighlighter::detect_language("app.jsx"), Language::JavaScript);
+        assert_eq!(SyntaxHighlighter::detect_language("app.ts"), Language::JavaScript);
+        assert_eq!(SyntaxHighlighter::detect_language("app.tsx"), Language::JavaScript);
+    }
+
+    #[test]
+    fn detect_unknown() {
+        assert_eq!(SyntaxHighlighter::detect_language("readme.txt"), Language::PlainText);
+        assert_eq!(SyntaxHighlighter::detect_language("data.csv"), Language::PlainText);
+    }
+
+    #[test]
+    fn plaintext_single_segment() {
+        let hl = SyntaxHighlighter { language: Language::PlainText };
+        let result = hl.highlight_line("hello world");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "hello world");
+    }
+
+    #[test]
+    fn rust_keyword_highlighted() {
+        let hl = SyntaxHighlighter { language: Language::Rust };
+        let result = hl.highlight_line("fn main() {");
+        let keywords: Vec<&str> = result.iter()
+            .filter(|(_, c)| *c == Color::from_rgb(0.8, 0.4, 0.8))
+            .map(|(t, _)| t.as_str())
+            .collect();
+        assert!(keywords.contains(&"fn"), "expected 'fn' to be highlighted as keyword");
+    }
+
+    #[test]
+    fn rust_type_highlighted() {
+        let hl = SyntaxHighlighter { language: Language::Rust };
+        let result = hl.highlight_line("let x: String = String::new();");
+        let types: Vec<&str> = result.iter()
+            .filter(|(_, c)| *c == Color::from_rgb(0.2, 0.7, 0.7))
+            .map(|(t, _)| t.as_str())
+            .collect();
+        assert!(types.contains(&"String"), "expected 'String' to be highlighted as type");
+    }
+
+    #[test]
+    fn comment_highlighted() {
+        let hl = SyntaxHighlighter { language: Language::Rust };
+        let result = hl.highlight_line("// this is a comment");
+        let has_comment = result.iter().any(|(t, c)| *c == Color::from_rgb(0.4, 0.6, 0.4) && t.contains("comment"));
+        assert!(has_comment, "expected comment color in result");
+    }
+
+    #[test]
+    fn string_highlighted() {
+        let hl = SyntaxHighlighter { language: Language::Rust };
+        let result = hl.highlight_line(r#"let s = "hello";"#);
+        let strings: Vec<&str> = result.iter()
+            .filter(|(_, c)| *c == Color::from_rgb(0.6, 0.8, 0.4))
+            .map(|(t, _)| t.as_str())
+            .collect();
+        assert!(!strings.is_empty(), "expected string to be highlighted");
+    }
+
+    #[test]
+    fn python_keyword_highlighted() {
+        let hl = SyntaxHighlighter { language: Language::Python };
+        let result = hl.highlight_line("def hello():");
+        let keywords: Vec<&str> = result.iter()
+            .filter(|(_, c)| *c == Color::from_rgb(0.8, 0.4, 0.8))
+            .map(|(t, _)| t.as_str())
+            .collect();
+        assert!(keywords.contains(&"def"), "expected 'def' to be highlighted as keyword");
+    }
+
+    #[test]
+    fn javascript_keyword_highlighted() {
+        let hl = SyntaxHighlighter { language: Language::JavaScript };
+        let result = hl.highlight_line("function hello() {");
+        let keywords: Vec<&str> = result.iter()
+            .filter(|(_, c)| *c == Color::from_rgb(0.8, 0.4, 0.8))
+            .map(|(t, _)| t.as_str())
+            .collect();
+        assert!(keywords.contains(&"function"), "expected 'function' to be highlighted as keyword");
+    }
+}

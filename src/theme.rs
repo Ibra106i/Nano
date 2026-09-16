@@ -144,3 +144,38 @@ impl Theme {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toggle_dark_to_light() {
+        assert_eq!(Theme::Dark.toggle(), Theme::Light);
+    }
+
+    #[test]
+    fn toggle_light_to_dark() {
+        assert_eq!(Theme::Light.toggle(), Theme::Dark);
+    }
+
+    #[test]
+    fn toggle_roundtrip() {
+        assert_eq!(Theme::Dark.toggle().toggle(), Theme::Dark);
+        assert_eq!(Theme::Light.toggle().toggle(), Theme::Light);
+    }
+
+    #[test]
+    fn dark_and_light_colors_differ() {
+        assert_ne!(Theme::Dark.canvas_bg(), Theme::Light.canvas_bg());
+        assert_ne!(Theme::Dark.text_primary(), Theme::Light.text_primary());
+        assert_ne!(Theme::Dark.primary(), Theme::Light.primary());
+    }
+
+    #[test]
+    fn colors_are_nonzero() {
+        let dark = Theme::Dark;
+        let c = dark.canvas_bg();
+        assert!(c.r > 0.0 || c.g > 0.0 || c.b > 0.0);
+    }
+}
