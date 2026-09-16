@@ -66,47 +66,50 @@ impl SyntaxHighlighter {
         let mut result = Vec::new();
         let mut chars = line.chars().peekable();
         let mut current = String::new();
+        let mut pos = 0;
         
         while let Some(&ch) = chars.peek() {
             if ch.is_alphanumeric() || ch == '_' {
                 current.push(ch);
                 chars.next();
+                pos += 1;
             } else {
                 if !current.is_empty() {
                     let color = if keywords.contains(&current.as_str()) {
-                        Color::from_rgb(0.8, 0.4, 0.8) // Purple for keywords
+                        Color::from_rgb(0.8, 0.4, 0.8)
                     } else if types.contains(&current.as_str()) {
-                        Color::from_rgb(0.2, 0.7, 0.7) // Cyan for types
+                        Color::from_rgb(0.2, 0.7, 0.7)
                     } else {
-                        Color::default() // Default color
+                        Color::default()
                     };
                     result.push((current.clone(), color));
                     current.clear();
                 }
                 
-                // Handle comments
-                if ch == '/' && chars.clone().nth(1) == Some('/') {
-                    result.push((line[line.find('/').unwrap()..].to_string(), Color::from_rgb(0.4, 0.6, 0.4))); // Green for comments
-                    break;
-                }
-                
-                // Handle strings
+                // Handle strings first (so // inside strings isn't a comment)
                 if ch == '"' || ch == '\'' {
                     let quote = ch;
                     current.push(ch);
                     chars.next();
+                    pos += 1;
                     while let Some(&next_ch) = chars.peek() {
                         current.push(next_ch);
                         chars.next();
+                        pos += 1;
                         if next_ch == quote {
                             break;
                         }
                     }
-                    result.push((current.clone(), Color::from_rgb(0.6, 0.8, 0.4))); // Yellow for strings
+                    result.push((current.clone(), Color::from_rgb(0.6, 0.8, 0.4)));
                     current.clear();
+                } else if ch == '/' && pos + 1 < line.len() && line.as_bytes()[pos + 1] == b'/' {
+                    // Handle comments - use current position, not line.find('/')
+                    result.push((line[pos..].to_string(), Color::from_rgb(0.4, 0.6, 0.4)));
+                    break;
                 } else {
                     current.push(ch);
                     chars.next();
+                    pos += 1;
                     result.push((current.clone(), Color::default()));
                     current.clear();
                 }
@@ -225,5 +228,38 @@ mod tests {
             .map(|(t, _)| t.as_str())
             .collect();
         assert!(keywords.contains(&"function"), "expected 'function' to be highlighted as keyword");
+    }
+
+    #[test]
+    fn comment_after_slash_in_path() {
+        let hl = SyntaxHighlighter { language: Language::Rust };
+        let result = hl.highlight_line("foo/bar // comment");
+        let comment_color = Color::from_rgb(0.4, 0.6, 0.4);
+        let has_comment = result.iter().any(|(t, c)| *c == comment_color && t.contains("// comment"));
+        assert!(has_comment, "expected '// comment' to be highlighted as comment, got {:?}", result);
+    }
+
+    #[test]
+    fn url_in_string_not_comment() {
+        let hl = SyntaxHighlighter { language: Language::Rust };
+        let result = hl.highlight_line(r#"let url = "http://example.com";"#);
+        let string_color = Color::from_rgb(0.6, 0.8, 0.4);
+        let comment_color = Color::from_rgb(0.4, 0.6, 0.4);
+        let has_string = result.iter().any(|(t, c)| *c == string_color && t.contains("http://example.com"));
+        let has_comment = result.iter().any(|(t, c)| *c == comment_color);
+        assert!(has_string, "expected URL to be inside a string");
+        assert!(!has_comment, "URL should not be treated as a comment");
+    }
+
+    #[test]
+    fn string_then_comment() {
+        let hl = SyntaxHighlighter { language: Language::Rust };
+        let result = hl.highlight_line(r#""foo" // comment"#);
+        let string_color = Color::from_rgb(0.6, 0.8, 0.4);
+        let comment_color = Color::from_rgb(0.4, 0.6, 0.4);
+        let has_string = result.iter().any(|(t, c)| *c == string_color && t.contains("foo"));
+        let has_comment = result.iter().any(|(t, c)| *c == comment_color && t.contains("// comment"));
+        assert!(has_string, "expected string 'foo'");
+        assert!(has_comment, "expected comment after string");
     }
 }
