@@ -46,21 +46,26 @@ impl FindState {
         }
 
         let query_lower = self.query_chars_lower();
-        let query_len = query_len(&query_lower);
+        let query_len = query_lower.len();
         if query_len == 0 {
             return Vec::new();
         }
 
-        let text_lower: Vec<char> = rope.chars().map(|c| c.to_lowercase().next().unwrap()).collect();
         let mut matches = Vec::new();
+        let mut window: VecDeque<char> = VecDeque::with_capacity(query_len);
+        let mut char_idx = 0;
 
-        for i in 0..=text_lower.len().saturating_sub(query_len) {
-            if text_lower[i..i + query_len] == query_lower[..] {
-                let line = rope.char_to_line(i);
-                let line_start = rope.line_to_char(line);
-                let col = i - line_start;
-                matches.push((line, col));
+        for ch in rope.chars() {
+            window.push_back(ch.to_lowercase().next().unwrap());
+            if window.len() > query_len {
+                window.pop_front();
             }
+            if window.len() == query_len && window.iter().zip(query_lower.iter()).all(|(a, b)| a == b) {
+                let line = rope.char_to_line(char_idx);
+                let line_start = rope.line_to_char(line);
+                matches.push((line, char_idx - line_start));
+            }
+            char_idx += 1;
         }
 
         matches
@@ -120,21 +125,30 @@ impl FindState {
         }
 
         let query_lower = self.query_chars_lower();
-        let query_len = query_len(&query_lower);
+        let query_len = query_lower.len();
         if query_len == 0 {
             return false;
         }
 
-        let text_lower: Vec<char> = rope.chars().map(|c| c.to_lowercase().next().unwrap()).collect();
         let cursor_pos = rope.line_to_char(cursor_line) + cursor_col;
+        let mut window: VecDeque<char> = VecDeque::with_capacity(query_len);
+        let mut char_idx = 0;
 
-        for i in cursor_pos..=text_lower.len().saturating_sub(query_len) {
-            if text_lower[i..i + query_len] == query_lower[..] {
-                let end = i + query_len;
-                rope.remove(i..end);
-                rope.insert(i, &self.replace_text);
+        for ch in rope.chars() {
+            window.push_back(ch.to_lowercase().next().unwrap());
+            if window.len() > query_len {
+                window.pop_front();
+            }
+            if char_idx >= cursor_pos && window.len() == query_len
+                && window.iter().zip(query_lower.iter()).all(|(a, b)| a == b)
+            {
+                let start = char_idx + 1 - query_len;
+                let end = char_idx + 1;
+                rope.remove(start..end);
+                rope.insert(start, &self.replace_text);
                 return true;
             }
+            char_idx += 1;
         }
 
         false
@@ -145,32 +159,32 @@ impl FindState {
             return 0;
         }
 
-        let query_lower = self.query_chars_lower();
-        let query_len = query_len(&query_lower);
-        if query_len == 0 {
+        let matches = self.find_all(rope);
+        if matches.is_empty() {
             return 0;
         }
 
-        let text_lower: Vec<char> = rope.chars().map(|c| c.to_lowercase().next().unwrap()).collect();
-        let text_chars: Vec<char> = rope.chars().collect();
         let mut result = String::new();
+        let mut chars = rope.chars().enumerate().peekable();
+        let mut match_idx = 0;
         let mut count = 0;
-        let mut i = 0;
 
-        while i <= text_lower.len().saturating_sub(query_len) {
-            if text_lower[i..i + query_len] == query_lower[..] {
-                result.push_str(&self.replace_text);
-                i += query_len;
-                count += 1;
-            } else {
-                result.push(text_chars[i]);
-                i += 1;
+        while let Some((i, ch)) = chars.next() {
+            if match_idx < matches.len() {
+                let (line, col) = matches[match_idx];
+                let match_start = rope.line_to_char(line) + col;
+                if i == match_start {
+                    result.push_str(&self.replace_text);
+                    count += 1;
+                    let query_len = self.query_chars_lower().len();
+                    for _ in 0..query_len - 1 {
+                        chars.next();
+                    }
+                    match_idx += 1;
+                    continue;
+                }
             }
-        }
-
-        while i < text_chars.len() {
-            result.push(text_chars[i]);
-            i += 1;
+            result.push(ch);
         }
 
         if count > 0 {
@@ -181,14 +195,11 @@ impl FindState {
     }
 }
 
-fn query_len(chars: &[char]) -> usize {
-    chars.len()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ropey::Rope;
+use ropey::Rope;
+use std::collections::VecDeque;
 
     fn rope(text: &str) -> Rope {
         Rope::from_str(text)
