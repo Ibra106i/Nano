@@ -262,7 +262,6 @@ fn render_line_with_selection(
 
         if seg_end <= sel_start || char_pos >= sel_end {
             let outside = char_pos < sel_start;
-            let color = if outside { *seg_color } else { *seg_color };
             if has_cursor && char_pos <= cursor_col && cursor_col <= seg_end && !outside {
                 let before_cur: String = seg_text.chars().take(cursor_col - char_pos).collect();
                 let after_cur: String = seg_text.chars().skip(cursor_col - char_pos).collect();
@@ -274,7 +273,7 @@ fn render_line_with_selection(
                     parts.push(text(after_cur).size(sz).color(Color::WHITE).into());
                 }
             } else {
-                parts.push(text(seg_text.clone()).size(sz).color(color).into());
+                parts.push(text(seg_text.clone()).size(sz).color(*seg_color).into());
             }
         } else {
             let before_sel: String = seg_text.chars().take(sel_start.saturating_sub(char_pos)).collect();
