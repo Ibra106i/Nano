@@ -7,6 +7,7 @@ mod syntax;
 mod find;
 mod theme;
 mod measure;
+mod layout;
 
 use editor::Editor;
 
