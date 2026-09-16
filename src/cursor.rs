@@ -103,12 +103,12 @@ impl Cursor {
         self.col = self.col.min(line_len);
     }
 
-    pub fn to_byte_offset(&self, rope: &Rope) -> usize {
+    pub fn to_char_offset(&self, rope: &Rope) -> usize {
         let line_start = rope.line_to_char(self.line);
         line_start + self.col
     }
 
-    pub fn from_byte_offset(offset: usize, rope: &Rope) -> Self {
+    pub fn from_char_offset(offset: usize, rope: &Rope) -> Self {
         let line = rope.char_to_line(offset);
         let line_start = rope.line_to_char(line);
         let col = offset - line_start;
@@ -354,30 +354,30 @@ mod tests {
     }
 
     #[test]
-    fn to_byte_offset_basic() {
+    fn to_char_offset_basic() {
         let r = rope("hello\nworld");
         let mut c = Cursor::new();
         c.line = 1;
         c.col = 3;
-        assert_eq!(c.to_byte_offset(&r), 9); // "hello\n" = 6 chars, + col 3 = 9
+        assert_eq!(c.to_char_offset(&r), 9); // "hello\n" = 6 chars, + col 3 = 9
     }
 
     #[test]
-    fn from_byte_offset_basic() {
+    fn from_char_offset_basic() {
         let r = rope("hello\nworld");
-        let c = Cursor::from_byte_offset(9, &r);
+        let c = Cursor::from_char_offset(9, &r);
         assert_eq!(c.line, 1);
         assert_eq!(c.col, 3); // offset 9 = line 1, col 3
     }
 
     #[test]
-    fn byte_offset_roundtrip() {
+    fn char_offset_roundtrip() {
         let r = rope("hello\nworld\nfoo");
         let mut c = Cursor::new();
         c.line = 2;
         c.col = 1;
-        let offset = c.to_byte_offset(&r);
-        let c2 = Cursor::from_byte_offset(offset, &r);
+        let offset = c.to_char_offset(&r);
+        let c2 = Cursor::from_char_offset(offset, &r);
         assert_eq!(c2.line, 2);
         assert_eq!(c2.col, 1);
     }

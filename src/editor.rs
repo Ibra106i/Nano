@@ -160,7 +160,7 @@ impl Editor {
             Message::InsertChar(ch) => {
                 if ch == '\0' { return Task::none(); }
                 self.delete_selection();
-                let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                let o = self.cursor.to_char_offset(&self.buffer.rope);
                 let delta = self.compute_insert_word_delta(o, &ch.to_string());
                 self.buffer.insert_char(o, ch);
                 self.cursor.move_right(&self.buffer.rope);
@@ -174,7 +174,7 @@ impl Editor {
                     self.char_count = self.buffer.len_chars();
                     self.update_counts();
                 } else {
-                    let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                    let o = self.cursor.to_char_offset(&self.buffer.rope);
                     if o > 0 {
                         let delta = self.compute_delete_word_delta(o - 1, 1);
                         self.buffer.delete(o - 1, 1);
@@ -191,7 +191,7 @@ impl Editor {
                     self.char_count = self.buffer.len_chars();
                     self.update_counts();
                 } else {
-                    let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                    let o = self.cursor.to_char_offset(&self.buffer.rope);
                     if o < self.buffer.len_chars() {
                         let delta = self.compute_delete_word_delta(o, 1);
                         self.buffer.delete(o, 1);
@@ -203,7 +203,7 @@ impl Editor {
             }
             Message::Newline => {
                 self.delete_selection();
-                let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                let o = self.cursor.to_char_offset(&self.buffer.rope);
                 let delta = self.compute_insert_word_delta(o, "\n");
                 self.buffer.insert_str(o, "\n");
                 self.cursor.move_down(&self.buffer.rope);
@@ -214,7 +214,7 @@ impl Editor {
             }
             Message::Tab => {
                 self.delete_selection();
-                let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                let o = self.cursor.to_char_offset(&self.buffer.rope);
                 let delta = self.compute_insert_word_delta(o, "    ");
                 self.buffer.insert_str(o, "    ");
                 let line_len = self.buffer.line(self.cursor.line).len_chars();
@@ -279,7 +279,7 @@ impl Editor {
                 if let Some(ref mut cb) = self.clipboard {
                     if let Ok(text) = cb.get_contents() {
                         self.delete_selection();
-                        let o = self.cursor.to_byte_offset(&self.buffer.rope);
+                        let o = self.cursor.to_char_offset(&self.buffer.rope);
                         let delta = self.compute_insert_word_delta(o, &text);
                         self.buffer.insert_str(o, &text);
                         for _ in 0..text.chars().count() {
