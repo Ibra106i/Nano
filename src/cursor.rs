@@ -359,15 +359,15 @@ mod tests {
         let mut c = Cursor::new();
         c.line = 1;
         c.col = 3;
-        assert_eq!(c.to_byte_offset(&r), 8); // "hello\n" = 6, + 3 = 9... wait
+        assert_eq!(c.to_byte_offset(&r), 9); // "hello\n" = 6 chars, + col 3 = 9
     }
 
     #[test]
     fn from_byte_offset_basic() {
         let r = rope("hello\nworld");
-        let c = Cursor::from_byte_offset(8, &r);
+        let c = Cursor::from_byte_offset(9, &r);
         assert_eq!(c.line, 1);
-        assert_eq!(c.col, 2); // offset 8 = "hello\nwo" -> line 1, col 2
+        assert_eq!(c.col, 3); // offset 9 = line 1, col 3
     }
 
     #[test]
