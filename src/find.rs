@@ -107,7 +107,7 @@ impl FindState {
                     matches.len() - 1
                 }
             }
-            None => 0,
+            None => matches.len() - 1,
         };
 
         self.current_match = Some(prev);
@@ -308,8 +308,8 @@ mod tests {
         let mut fs = FindState::new();
         fs.query = "a".to_string();
         let result = fs.find_previous(&r);
-        // current_match is None → prev = 0 (first match)
-        assert_eq!(result, Some((0, 0)));
+        // current_match is None → prev = last match (wraps to end)
+        assert_eq!(result, Some((0, 4)));
     }
 
     #[test]
@@ -328,8 +328,8 @@ mod tests {
         let r = rope("a b a b");
         let mut fs = FindState::new();
         fs.query = "a".to_string();
-        // current_match is None → prev wraps to last match (index 1)
-        let result = fs.find_previous(&r);
+        fs.find_next(&r); // match 0
+        let result = fs.find_previous(&r); // at 0, wraps to last (index 1)
         assert_eq!(result, Some((0, 4)));
     }
 
